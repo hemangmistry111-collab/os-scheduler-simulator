@@ -156,6 +156,8 @@ class SchedulerApp:
 
         self.output_text.delete("1.0", tk.END)
 
+    
+
 
 if __name__ == "__main__":
     root = tk.Tk()
