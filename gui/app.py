@@ -9,8 +9,8 @@ class SchedulerApp:
     def __init__(self, root):
         self.root = root
         self.root.title("OS Scheduler Simulator")
-        self.root.geometry("900x600")
-        self.root.resizable(False, False)
+        self.root.geometry("950x750")
+        self.root.resizable(True, True)
 
         self.processes = []
 
@@ -43,14 +43,14 @@ class SchedulerApp:
         table_frame = tk.Frame(root, padx=10, pady=10)
         table_frame.pack(fill="x", padx=15)
 
-        self.tree = ttk.Treeview(table_frame, columns=("PID", "AT", "BT"), show="headings", height=8)
+        self.tree = ttk.Treeview(table_frame, columns=("PID", "AT", "BT"), show="headings", height=6)
         self.tree.heading("PID", text="Process ID")
         self.tree.heading("AT", text="Arrival Time")
         self.tree.heading("BT", text="Burst Time")
 
-        self.tree.column("PID", width=150, anchor="center")
-        self.tree.column("AT", width=150, anchor="center")
-        self.tree.column("BT", width=150, anchor="center")
+        self.tree.column("PID", width=200, anchor="center")
+        self.tree.column("AT", width=200, anchor="center")
+        self.tree.column("BT", width=200, anchor="center")
 
         self.tree.pack(side="left", fill="x")
 
@@ -65,8 +65,13 @@ class SchedulerApp:
         tk.Label(algo_frame, text="Select Algorithm:", font=("Arial", 11, "bold")).grid(row=0, column=0, padx=5)
 
         self.algo_var = tk.StringVar()
-        self.algo_dropdown = ttk.Combobox(algo_frame, textvariable=self.algo_var,
-                                          values=["FCFS"], state="readonly", width=20)
+        self.algo_dropdown = ttk.Combobox(
+            algo_frame,
+            textvariable=self.algo_var,
+            values=["FCFS"],
+            state="readonly",
+            width=20
+        )
         self.algo_dropdown.grid(row=0, column=1, padx=5)
         self.algo_dropdown.current(0)
 
@@ -81,13 +86,22 @@ class SchedulerApp:
         clear_btn.grid(row=0, column=5, padx=10)
 
         # ------------------ Output Frame ------------------
-        output_frame = tk.Frame(root, padx=10, pady=10)
-        output_frame.pack(fill="both", expand=True, padx=15)
+        output_frame = tk.Frame(root, padx=10, pady=10, relief="ridge", bd=2)
+        output_frame.pack(fill="both", expand=True, padx=15, pady=10)
 
         tk.Label(output_frame, text="Results:", font=("Arial", 12, "bold")).pack(anchor="w")
 
-        self.output_text = tk.Text(output_frame, height=12, font=("Consolas", 11))
+        self.output_text = tk.Text(output_frame, height=10, font=("Consolas", 11))
         self.output_text.pack(fill="both", expand=True)
+
+        # ------------------ Gantt Chart Frame ------------------
+        gantt_frame = tk.Frame(root, padx=12, pady=12, relief="ridge", bd=4)
+        gantt_frame.pack(fill="x", padx=17, pady=12)
+
+        tk.Label(gantt_frame, text="Gantt Chart:", font=("Arial", 12, "bold")).pack(anchor="w")
+
+        self.gantt_canvas = tk.Canvas(gantt_frame, width=1000, height=350, bg="white")
+        self.gantt_canvas.pack()
 
     # ------------------ Add Process ------------------
     def add_process(self):
@@ -112,6 +126,29 @@ class SchedulerApp:
         self.at_entry.delete(0, tk.END)
         self.bt_entry.delete(0, tk.END)
 
+    # ------------------ Gantt Chart Drawing ------------------
+    def show_gantt_chart(self, timeline):
+        self.gantt_canvas.delete("all")
+
+        start_x = 30
+        y1, y2 = 30, 80
+
+        max_time = timeline[-1][2]
+        scale = 800 / max_time  # auto scale based on total time
+
+        for pid, start, end in timeline:
+            x1 = start_x + start * scale
+            x2 = start_x + end * scale
+
+            color = "lightgray" if pid == "IDLE" else "skyblue"
+
+            self.gantt_canvas.create_rectangle(x1, y1, x2, y2, fill=color, outline="black")
+            self.gantt_canvas.create_text((x1 + x2) / 2, (y1 + y2) / 2, text=pid, font=("Arial", 10, "bold"))
+
+            self.gantt_canvas.create_text(x1, y2 + 15, text=str(start), font=("Arial", 9))
+
+        self.gantt_canvas.create_text(start_x + max_time * scale, y2 + 20, text=str(max_time), font=("Arial", 9))
+
     # ------------------ Simulate ------------------
     def simulate(self):
         if len(self.processes) == 0:
@@ -121,15 +158,15 @@ class SchedulerApp:
         algo = self.algo_var.get()
 
         if algo == "FCFS":
-            result = fcfs_scheduling(self.processes)
-
+            result, timeline = fcfs_scheduling(self.processes)
+            self.show_gantt_chart(timeline)
         else:
             messagebox.showerror("Error", "Algorithm not implemented yet.")
             return
 
         self.output_text.delete("1.0", tk.END)
         self.output_text.insert(tk.END, "PID\tAT\tBT\tWT\tTAT\n")
-        self.output_text.insert(tk.END, "-" * 40 + "\n")
+        self.output_text.insert(tk.END, "-" * 50 + "\n")
 
         total_wt = 0
         total_tat = 0
@@ -137,13 +174,16 @@ class SchedulerApp:
         for p in result:
             total_wt += p.waiting_time
             total_tat += p.turnaround_time
-            self.output_text.insert(tk.END,
-                                    f"{p.pid}\t{p.arrival_time}\t{p.burst_time}\t{p.waiting_time}\t{p.turnaround_time}\n")
+
+            self.output_text.insert(
+                tk.END,
+                f"{p.pid}\t{p.arrival_time}\t{p.burst_time}\t{p.waiting_time}\t{p.turnaround_time}\n"
+            )
 
         avg_wt = total_wt / len(result)
         avg_tat = total_tat / len(result)
 
-        self.output_text.insert(tk.END, "-" * 40 + "\n")
+        self.output_text.insert(tk.END, "-" * 50 + "\n")
         self.output_text.insert(tk.END, f"Average Waiting Time: {avg_wt:.2f}\n")
         self.output_text.insert(tk.END, f"Average Turnaround Time: {avg_tat:.2f}\n")
 
@@ -155,8 +195,7 @@ class SchedulerApp:
             self.tree.delete(row)
 
         self.output_text.delete("1.0", tk.END)
-
-    
+        self.gantt_canvas.delete("all")
 
 
 if __name__ == "__main__":

@@ -9,5 +9,8 @@ class Process:
         self.waiting_time = 0
         self.turnaround_time = 0
 
+        # for future use in Round Robin
+        self.remaining_time = burst_time
+
     def __repr__(self):
         return f"{self.pid}"
