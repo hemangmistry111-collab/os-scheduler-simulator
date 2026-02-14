@@ -4,20 +4,22 @@ from tkinter import ttk, messagebox
 from core.process import Process
 from algorithms.fcfs import fcfs_scheduling
 from algorithms.round_robin import round_robin_scheduling
+from algorithms.sjf_np import sjf_non_preemptive
 
 
 class SchedulerApp:
     def __init__(self, root):
         self.root = root
         self.root.title("OS Scheduler Simulator")
-        self.root.geometry("950x750")
-        self.root.resizable(False, False)
+
+        # Maximize window (works in Windows)
+        self.root.state("zoomed")
 
         self.processes = []
 
         # ------------------ Heading ------------------
         title = tk.Label(root, text="OS Process Scheduler Simulator",
-                         font=("Arial", 18, "bold"))
+                         font=("Arial", 20, "bold"))
         title.pack(pady=10)
 
         # ------------------ Input Frame ------------------
@@ -28,13 +30,13 @@ class SchedulerApp:
         tk.Label(input_frame, text="Arrival Time:").grid(row=0, column=2, padx=5, pady=5)
         tk.Label(input_frame, text="Burst Time:").grid(row=0, column=4, padx=5, pady=5)
 
-        self.pid_entry = tk.Entry(input_frame, width=10)
+        self.pid_entry = tk.Entry(input_frame, width=12)
         self.pid_entry.grid(row=0, column=1, padx=5, pady=5)
 
-        self.at_entry = tk.Entry(input_frame, width=10)
+        self.at_entry = tk.Entry(input_frame, width=12)
         self.at_entry.grid(row=0, column=3, padx=5, pady=5)
 
-        self.bt_entry = tk.Entry(input_frame, width=10)
+        self.bt_entry = tk.Entry(input_frame, width=12)
         self.bt_entry.grid(row=0, column=5, padx=5, pady=5)
 
         add_btn = tk.Button(input_frame, text="Add Process", command=self.add_process)
@@ -44,7 +46,7 @@ class SchedulerApp:
         table_frame = tk.Frame(root, padx=10, pady=10)
         table_frame.pack(fill="x", padx=15)
 
-        self.tree = ttk.Treeview(table_frame, columns=("PID", "AT", "BT"), show="headings", height=6)
+        self.tree = ttk.Treeview(table_frame, columns=("PID", "AT", "BT"), show="headings", height=7)
         self.tree.heading("PID", text="Process ID")
         self.tree.heading("AT", text="Arrival Time")
         self.tree.heading("BT", text="Burst Time")
@@ -53,7 +55,7 @@ class SchedulerApp:
         self.tree.column("AT", width=200, anchor="center")
         self.tree.column("BT", width=200, anchor="center")
 
-        self.tree.pack(side="left", fill="x")
+        self.tree.pack(side="left", fill="x", expand=True)
 
         scrollbar = ttk.Scrollbar(table_frame, orient="vertical", command=self.tree.yview)
         scrollbar.pack(side="right", fill="y")
@@ -63,7 +65,7 @@ class SchedulerApp:
         algo_frame = tk.Frame(root, padx=10, pady=10, relief="ridge", bd=2)
         algo_frame.pack(fill="x", padx=15, pady=10)
 
-        tk.Label(algo_frame, text="Select Algorithm:", font=("Arial", 11, "bold")).grid(row=0, column=0, padx=5)
+        tk.Label(algo_frame, text="Select Algorithm:", font=("Arial", 12, "bold")).grid(row=0, column=0, padx=5)
 
         self.algo_var = tk.StringVar()
 
@@ -73,17 +75,12 @@ class SchedulerApp:
             values=[
                 "FCFS",
                 "SJF (Non Preemptive)",
-                "SRTF (Preemptive)",
-                "Priority (Non Preemptive)",
-                "Priority (Preemptive)",
-                "Round Robin",
-                "HRRN",
-                "Multilevel Queue"
+                "Round Robin"
             ],
             state="readonly",
             width=25
         )
-        self.algo_dropdown.grid(row=0, column=1, padx=5)
+        self.algo_dropdown.grid(row=0, column=1, padx=10)
         self.algo_dropdown.current(0)
 
         tk.Label(algo_frame, text="Time Quantum (RR):").grid(row=0, column=2, padx=5)
@@ -103,17 +100,23 @@ class SchedulerApp:
 
         tk.Label(output_frame, text="Results:", font=("Arial", 12, "bold")).pack(anchor="w")
 
-        self.output_text = tk.Text(output_frame, height=10, font=("Consolas", 11))
+        self.output_text = tk.Text(output_frame, height=10, font=("Consolas", 12))
         self.output_text.pack(fill="both", expand=True)
 
         # ------------------ Gantt Chart Frame ------------------
         gantt_frame = tk.Frame(root, padx=10, pady=10, relief="ridge", bd=2)
-        gantt_frame.pack(fill="x", padx=15, pady=10)
+        gantt_frame.pack(fill="both", expand=True, padx=15, pady=10)
 
         tk.Label(gantt_frame, text="Gantt Chart:", font=("Arial", 12, "bold")).pack(anchor="w")
 
-        self.gantt_canvas = tk.Canvas(gantt_frame, width=900, height=180, bg="white")
-        self.gantt_canvas.pack()
+        # Scrollbar for gantt chart
+        self.gantt_canvas = tk.Canvas(gantt_frame, bg="white", height=180)
+        self.gantt_canvas.pack(side="top", fill="both", expand=True)
+
+        gantt_scrollbar = ttk.Scrollbar(gantt_frame, orient="horizontal", command=self.gantt_canvas.xview)
+        gantt_scrollbar.pack(side="bottom", fill="x")
+
+        self.gantt_canvas.configure(xscrollcommand=gantt_scrollbar.set)
 
     # ------------------ Add Process ------------------
     def add_process(self):
@@ -143,13 +146,10 @@ class SchedulerApp:
         self.gantt_canvas.delete("all")
 
         start_x = 30
-        y1, y2 = 40, 100
+        y1, y2 = 50, 110
 
         max_time = timeline[-1][2]
-        if max_time == 0:
-            return
-
-        scale = 800 / max_time
+        scale = 60  # fixed scale so chart expands, scrollbar handles width
 
         for pid, start, end in timeline:
             x1 = start_x + start * scale
@@ -163,6 +163,9 @@ class SchedulerApp:
             self.gantt_canvas.create_text(x1, y2 + 20, text=str(start), font=("Arial", 9))
 
         self.gantt_canvas.create_text(start_x + max_time * scale, y2 + 20, text=str(max_time), font=("Arial", 9))
+
+        # Set scroll region so scrollbar works
+        self.gantt_canvas.configure(scrollregion=self.gantt_canvas.bbox("all"))
 
     # ------------------ Simulate ------------------
     def simulate(self):
@@ -184,12 +187,16 @@ class SchedulerApp:
 
             result, timeline = round_robin_scheduling(self.processes, int(tq))
 
+        elif algo == "SJF (Non Preemptive)":
+            result, timeline = sjf_non_preemptive(self.processes)
+
         else:
             messagebox.showerror("Error", f"{algo} is not implemented yet.")
             return
 
         self.show_gantt_chart(timeline)
 
+        # Print Results
         self.output_text.delete("1.0", tk.END)
         self.output_text.insert(tk.END, "PID\tAT\tBT\tWT\tTAT\n")
         self.output_text.insert(tk.END, "-" * 50 + "\n")

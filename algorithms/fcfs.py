@@ -5,8 +5,6 @@ def fcfs_scheduling(process_list):
     timeline = []
 
     for process in process_list:
-
-        # CPU Idle case
         if current_time < process.arrival_time:
             timeline.append(("IDLE", current_time, process.arrival_time))
             current_time = process.arrival_time
