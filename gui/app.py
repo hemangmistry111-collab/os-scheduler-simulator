@@ -12,7 +12,7 @@ class SchedulerApp:
         self.root = root
         self.root.title("OS Scheduler Simulator")
 
-        # Maximize window (works in Windows)
+        # Maximize window (Windows)
         self.root.state("zoomed")
 
         self.processes = []
@@ -51,9 +51,9 @@ class SchedulerApp:
         self.tree.heading("AT", text="Arrival Time")
         self.tree.heading("BT", text="Burst Time")
 
-        self.tree.column("PID", width=200, anchor="center")
-        self.tree.column("AT", width=200, anchor="center")
-        self.tree.column("BT", width=200, anchor="center")
+        self.tree.column("PID", width=250, anchor="center")
+        self.tree.column("AT", width=250, anchor="center")
+        self.tree.column("BT", width=250, anchor="center")
 
         self.tree.pack(side="left", fill="x", expand=True)
 
@@ -94,14 +94,23 @@ class SchedulerApp:
         clear_btn = tk.Button(algo_frame, text="Clear All", command=self.clear_all)
         clear_btn.grid(row=0, column=5, padx=10)
 
-        # ------------------ Output Frame ------------------
+        # ------------------ Results Frame ------------------
         output_frame = tk.Frame(root, padx=10, pady=10, relief="ridge", bd=2)
         output_frame.pack(fill="both", expand=True, padx=15, pady=10)
 
         tk.Label(output_frame, text="Results:", font=("Arial", 12, "bold")).pack(anchor="w")
 
-        self.output_text = tk.Text(output_frame, height=10, font=("Consolas", 12))
+        self.output_text = tk.Text(output_frame, height=8, font=("Consolas", 12))
         self.output_text.pack(fill="both", expand=True)
+
+        # ------------------ Mathematical Solution Frame ------------------
+        solution_frame = tk.Frame(root, padx=10, pady=10, relief="ridge", bd=2)
+        solution_frame.pack(fill="both", expand=True, padx=15, pady=10)
+
+        tk.Label(solution_frame, text="Mathematical Solution (Working):", font=("Arial", 12, "bold")).pack(anchor="w")
+
+        self.solution_text = tk.Text(solution_frame, height=10, font=("Consolas", 12))
+        self.solution_text.pack(fill="both", expand=True)
 
         # ------------------ Gantt Chart Frame ------------------
         gantt_frame = tk.Frame(root, padx=10, pady=10, relief="ridge", bd=2)
@@ -109,7 +118,6 @@ class SchedulerApp:
 
         tk.Label(gantt_frame, text="Gantt Chart:", font=("Arial", 12, "bold")).pack(anchor="w")
 
-        # Scrollbar for gantt chart
         self.gantt_canvas = tk.Canvas(gantt_frame, bg="white", height=180)
         self.gantt_canvas.pack(side="top", fill="both", expand=True)
 
@@ -149,7 +157,7 @@ class SchedulerApp:
         y1, y2 = 50, 110
 
         max_time = timeline[-1][2]
-        scale = 60  # fixed scale so chart expands, scrollbar handles width
+        scale = 60  # fixed scale
 
         for pid, start, end in timeline:
             x1 = start_x + start * scale
@@ -164,8 +172,19 @@ class SchedulerApp:
 
         self.gantt_canvas.create_text(start_x + max_time * scale, y2 + 20, text=str(max_time), font=("Arial", 9))
 
-        # Set scroll region so scrollbar works
         self.gantt_canvas.configure(scrollregion=self.gantt_canvas.bbox("all"))
+
+    # ------------------ Mathematical Solution ------------------
+    def show_math_solution(self, result):
+        self.solution_text.delete("1.0", tk.END)
+
+        for p in result:
+            self.solution_text.insert(tk.END, f"{p.pid}:\n")
+            self.solution_text.insert(tk.END, f"ST = {p.start_time}\n")
+            self.solution_text.insert(tk.END, f"CT = ST + BT = {p.start_time} + {p.burst_time} = {p.completion_time}\n")
+            self.solution_text.insert(tk.END, f"TAT = CT - AT = {p.completion_time} - {p.arrival_time} = {p.turnaround_time}\n")
+            self.solution_text.insert(tk.END, f"WT = TAT - BT = {p.turnaround_time} - {p.burst_time} = {p.waiting_time}\n")
+            self.solution_text.insert(tk.END, "-" * 60 + "\n")
 
     # ------------------ Simulate ------------------
     def simulate(self):
@@ -194,12 +213,14 @@ class SchedulerApp:
             messagebox.showerror("Error", f"{algo} is not implemented yet.")
             return
 
+        # Show Gantt Chart and Math Solution
         self.show_gantt_chart(timeline)
+        self.show_math_solution(result)
 
         # Print Results
         self.output_text.delete("1.0", tk.END)
         self.output_text.insert(tk.END, "PID\tAT\tBT\tWT\tTAT\n")
-        self.output_text.insert(tk.END, "-" * 50 + "\n")
+        self.output_text.insert(tk.END, "-" * 60 + "\n")
 
         total_wt = 0
         total_tat = 0
@@ -216,7 +237,7 @@ class SchedulerApp:
         avg_wt = total_wt / len(result)
         avg_tat = total_tat / len(result)
 
-        self.output_text.insert(tk.END, "-" * 50 + "\n")
+        self.output_text.insert(tk.END, "-" * 60 + "\n")
         self.output_text.insert(tk.END, f"Average Waiting Time: {avg_wt:.2f}\n")
         self.output_text.insert(tk.END, f"Average Turnaround Time: {avg_tat:.2f}\n")
 
@@ -228,6 +249,7 @@ class SchedulerApp:
             self.tree.delete(row)
 
         self.output_text.delete("1.0", tk.END)
+        self.solution_text.delete("1.0", tk.END)
         self.gantt_canvas.delete("all")
 
 
