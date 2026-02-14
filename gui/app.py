@@ -3,6 +3,7 @@ from tkinter import ttk, messagebox
 
 from core.process import Process
 from algorithms.fcfs import fcfs_scheduling
+from algorithms.round_robin import round_robin_scheduling
 
 
 class SchedulerApp:
@@ -10,7 +11,7 @@ class SchedulerApp:
         self.root = root
         self.root.title("OS Scheduler Simulator")
         self.root.geometry("950x750")
-        self.root.resizable(True, True)
+        self.root.resizable(False, False)
 
         self.processes = []
 
@@ -65,17 +66,28 @@ class SchedulerApp:
         tk.Label(algo_frame, text="Select Algorithm:", font=("Arial", 11, "bold")).grid(row=0, column=0, padx=5)
 
         self.algo_var = tk.StringVar()
+
         self.algo_dropdown = ttk.Combobox(
             algo_frame,
             textvariable=self.algo_var,
-            values=["FCFS"],
+            values=[
+                "FCFS",
+                "SJF (Non Preemptive)",
+                "SRTF (Preemptive)",
+                "Priority (Non Preemptive)",
+                "Priority (Preemptive)",
+                "Round Robin",
+                "HRRN",
+                "Multilevel Queue"
+            ],
             state="readonly",
-            width=20
+            width=25
         )
         self.algo_dropdown.grid(row=0, column=1, padx=5)
         self.algo_dropdown.current(0)
 
         tk.Label(algo_frame, text="Time Quantum (RR):").grid(row=0, column=2, padx=5)
+
         self.quantum_entry = tk.Entry(algo_frame, width=10)
         self.quantum_entry.grid(row=0, column=3, padx=5)
 
@@ -95,12 +107,12 @@ class SchedulerApp:
         self.output_text.pack(fill="both", expand=True)
 
         # ------------------ Gantt Chart Frame ------------------
-        gantt_frame = tk.Frame(root, padx=12, pady=12, relief="ridge", bd=4)
-        gantt_frame.pack(fill="x", padx=17, pady=12)
+        gantt_frame = tk.Frame(root, padx=10, pady=10, relief="ridge", bd=2)
+        gantt_frame.pack(fill="x", padx=15, pady=10)
 
         tk.Label(gantt_frame, text="Gantt Chart:", font=("Arial", 12, "bold")).pack(anchor="w")
 
-        self.gantt_canvas = tk.Canvas(gantt_frame, width=1000, height=350, bg="white")
+        self.gantt_canvas = tk.Canvas(gantt_frame, width=900, height=180, bg="white")
         self.gantt_canvas.pack()
 
     # ------------------ Add Process ------------------
@@ -131,10 +143,13 @@ class SchedulerApp:
         self.gantt_canvas.delete("all")
 
         start_x = 30
-        y1, y2 = 30, 80
+        y1, y2 = 40, 100
 
         max_time = timeline[-1][2]
-        scale = 800 / max_time  # auto scale based on total time
+        if max_time == 0:
+            return
+
+        scale = 800 / max_time
 
         for pid, start, end in timeline:
             x1 = start_x + start * scale
@@ -145,7 +160,7 @@ class SchedulerApp:
             self.gantt_canvas.create_rectangle(x1, y1, x2, y2, fill=color, outline="black")
             self.gantt_canvas.create_text((x1 + x2) / 2, (y1 + y2) / 2, text=pid, font=("Arial", 10, "bold"))
 
-            self.gantt_canvas.create_text(x1, y2 + 15, text=str(start), font=("Arial", 9))
+            self.gantt_canvas.create_text(x1, y2 + 20, text=str(start), font=("Arial", 9))
 
         self.gantt_canvas.create_text(start_x + max_time * scale, y2 + 20, text=str(max_time), font=("Arial", 9))
 
@@ -159,10 +174,21 @@ class SchedulerApp:
 
         if algo == "FCFS":
             result, timeline = fcfs_scheduling(self.processes)
-            self.show_gantt_chart(timeline)
+
+        elif algo == "Round Robin":
+            tq = self.quantum_entry.get().strip()
+
+            if tq == "" or not tq.isdigit() or int(tq) <= 0:
+                messagebox.showerror("Error", "Please enter valid Time Quantum for Round Robin.")
+                return
+
+            result, timeline = round_robin_scheduling(self.processes, int(tq))
+
         else:
-            messagebox.showerror("Error", "Algorithm not implemented yet.")
+            messagebox.showerror("Error", f"{algo} is not implemented yet.")
             return
+
+        self.show_gantt_chart(timeline)
 
         self.output_text.delete("1.0", tk.END)
         self.output_text.insert(tk.END, "PID\tAT\tBT\tWT\tTAT\n")
