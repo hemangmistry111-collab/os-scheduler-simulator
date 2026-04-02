@@ -1,4 +1,6 @@
 def sjf_non_preemptive(process_list):
+    process_list.sort(key=lambda x: (x.arrival_time, x.burst_time, x.pid))
+
     n = len(process_list)
     completed = 0
     current_time = 0
@@ -12,12 +14,32 @@ def sjf_non_preemptive(process_list):
         for i in range(n):
             if (process_list[i].arrival_time <= current_time and
                 not visited[i] and
-                process_list[i].burst_time < min_bt):
+                (
+                    process_list[i].burst_time < min_bt or
+                    (
+                        process_list[i].burst_time == min_bt and
+                        idx != -1 and
+                        (
+                            process_list[i].arrival_time < process_list[idx].arrival_time or
+                            (
+                                process_list[i].arrival_time == process_list[idx].arrival_time and
+                                process_list[i].pid < process_list[idx].pid
+                            )
+                        )
+                    )
+                )):
                 min_bt = process_list[i].burst_time
                 idx = i
 
         if idx == -1:
-            current_time += 1
+            next_arrival = min(
+                process_list[i].arrival_time
+                for i in range(n)
+                if not visited[i]
+            )
+            if current_time < next_arrival:
+                timeline.append(("IDLE", current_time, next_arrival))
+            current_time = next_arrival
             continue
 
         p = process_list[idx]
