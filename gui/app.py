@@ -28,6 +28,15 @@ class SchedulerApp:
         ("P3", 2, 1, 4),
         ("P4", 2, 2, 3),
     ]
+    ALGORITHM_HELP = {
+        "FCFS": "Runs processes in arrival order. Simple and fair, but long jobs can delay shorter ones.",
+        "SJF (Non Preemptive)": "Selects the shortest available burst next. Low average waiting time, but once started a process runs to completion.",
+        "LJF (Non Preemptive)": "Selects the longest available burst next. Useful mainly for comparison and academic analysis.",
+        "Round Robin": "Executes each ready process for a fixed time quantum, then rotates. Good for time-sharing systems.",
+        "Priority (Non Preemptive)": "Runs the highest-priority available process next. Lower numeric priority value is treated as higher priority.",
+        "Priority (Preemptive)": "Always favors the highest-priority ready process, even if it must interrupt the current one.",
+        "SRTF (Preemptive SJF)": "Runs the process with the shortest remaining time. It is the preemptive version of SJF.",
+    }
 
     def __init__(self, root):
         self.root = root
@@ -231,6 +240,17 @@ class SchedulerApp:
         tk.Button(algo_frame, text="Compare All",
                   command=self.compare_algorithms, **self.secondary_button_style).grid(row=2, column=4, padx=(12, 0), sticky="ew")
 
+        self.algorithm_help_label = tk.Label(
+            algo_frame,
+            text=self.ALGORITHM_HELP[self.get_selected_algorithm()],
+            font=("Segoe UI", 10),
+            fg="#94a3b8",
+            bg="#14181d",
+            wraplength=900,
+            justify="left",
+        )
+        self.algorithm_help_label.grid(row=3, column=0, columnspan=5, sticky="w", pady=(14, 0))
+
         algo_frame.grid_columnconfigure(0, weight=3)
         algo_frame.grid_columnconfigure(2, weight=1)
         algo_frame.grid_columnconfigure(3, weight=1)
@@ -242,7 +262,7 @@ class SchedulerApp:
         summary_frame.pack(fill="x", padx=24, pady=(0, 14))
 
         self.summary_cards = {}
-        for card_title in ("Processes", "Algorithm", "Avg WT", "Avg TAT"):
+        for card_title in ("Processes", "Algorithm", "Avg WT", "Avg TAT", "Idle Time", "CPU Util"):
             card = tk.Frame(summary_frame, bg="#14181d", highlightthickness=1, highlightbackground="#232a33", padx=20, pady=16)
             card.pack(side="left", fill="x", expand=True, padx=(0, 10))
             tk.Label(card, text=card_title, font=("Segoe UI", 10, "bold"),
@@ -266,14 +286,14 @@ class SchedulerApp:
 
         self.results_tree = ttk.Treeview(
             results_table_frame,
-            columns=("PID", "CT", "TAT", "WT"),
+            columns=("PID", "CT", "TAT", "WT", "RT"),
             show="headings",
             style="Scheduler.Treeview",
             height=6
         )
-        for col in ("PID", "CT", "TAT", "WT"):
+        for col in ("PID", "CT", "TAT", "WT", "RT"):
             self.results_tree.heading(col, text=col)
-            self.results_tree.column(col, anchor="center", width=120)
+            self.results_tree.column(col, anchor="center", width=108)
 
         results_scroll = ttk.Scrollbar(results_table_frame, orient="vertical", command=self.results_tree.yview)
         self.results_tree.configure(yscrollcommand=results_scroll.set)
@@ -288,6 +308,15 @@ class SchedulerApp:
             bg="#14181d",
         )
         self.averages_label.pack(anchor="w", padx=20, pady=(0, 18))
+
+        self.performance_label = tk.Label(
+            output_frame,
+            text="Response Time Avg: -    CPU Idle Time: -    CPU Utilization: -",
+            font=("Segoe UI", 10, "bold"),
+            fg="#94a3b8",
+            bg="#14181d",
+        )
+        self.performance_label.pack(anchor="w", padx=20, pady=(0, 18))
 
         export_frame = tk.Frame(output_frame, bg="#14181d")
         export_frame.pack(fill="x", padx=20, pady=(0, 18))
@@ -331,6 +360,7 @@ class SchedulerApp:
         self.comparison_tree.configure(yscrollcommand=comparison_scroll.set)
         self.comparison_tree.pack(side="left", fill="both", expand=True)
         comparison_scroll.pack(side="right", fill="y")
+        self.comparison_tree.tag_configure("selected_algorithm", background="#1d4ed8", foreground="#eff6ff")
 
         comparison_export_frame = tk.Frame(comparison_frame, bg="#14181d")
         comparison_export_frame.pack(fill="x", padx=20, pady=(0, 12))
@@ -368,6 +398,15 @@ class SchedulerApp:
         )
         self.gantt_canvas.pack(fill="both", expand=True, padx=20, pady=(0, 18))
         self.show_gantt_chart([])
+
+        footer_actions = tk.Frame(self.main_frame, bg="#0b0d10")
+        footer_actions.pack(fill="x", padx=24, pady=(0, 10))
+        tk.Button(
+            footer_actions,
+            text="Reset Simulation",
+            command=self.reset_simulation,
+            **self.secondary_button_style
+        ).pack(side="left")
 
         footer_frame = tk.Frame(self.main_frame, bg="#0b0d10")
         footer_frame.pack(fill="x", padx=24, pady=(0, 24))
@@ -475,6 +514,9 @@ class SchedulerApp:
         }
 
     # ------------------ Add Process ------------------
+    def get_selected_algorithm(self):
+        return self.algo_var.get() or self.ALGORITHMS[0]
+
     def clear_process_form(self):
         self.pid_entry.delete(0, tk.END)
         self.at_entry.delete(0, tk.END)
@@ -498,6 +540,14 @@ class SchedulerApp:
 
         if not (pid and at.isdigit() and bt.isdigit() and pr.isdigit()):
             messagebox.showerror("Error", "Enter valid inputs")
+            return
+
+        duplicate_pid = any(
+            existing_process.pid == pid and index != self.selected_process_index
+            for index, existing_process in enumerate(self.processes)
+        )
+        if duplicate_pid:
+            messagebox.showerror("Error", "PID must be unique")
             return
 
         process = Process(pid, int(at), int(bt), int(pr))
@@ -580,17 +630,21 @@ class SchedulerApp:
         self.simulate(show_errors=False)
         self.compare_algorithms()
 
-    def update_summary_cards(self, avg_wt="-", avg_tat="-"):
+    def update_summary_cards(self, avg_wt="-", avg_tat="-", idle_time="-", cpu_util="-"):
         self.summary_cards["Processes"].configure(text=str(len(self.processes)))
-        self.summary_cards["Algorithm"].configure(text=self.algo_var.get() or "-")
+        self.summary_cards["Algorithm"].configure(text=self.get_selected_algorithm())
         self.summary_cards["Avg WT"].configure(text=avg_wt)
         self.summary_cards["Avg TAT"].configure(text=avg_tat)
+        self.summary_cards["Idle Time"].configure(text=idle_time)
+        self.summary_cards["CPU Util"].configure(text=cpu_util)
 
     def clear_simulation_outputs(self):
         self.gantt_canvas.delete("all")
+        self.show_gantt_chart([])
         self.solution_text.delete("1.0", tk.END)
         self.results_tree.delete(*self.results_tree.get_children())
         self.averages_label.configure(text="Average Waiting Time: -    Average Turnaround Time: -")
+        self.performance_label.configure(text="Response Time Avg: -    CPU Idle Time: -    CPU Utilization: -")
         self.comparison_tree.delete(*self.comparison_tree.get_children())
         self.best_algorithm_label.configure(text="Best Algorithm: -")
         self.last_result_rows = []
@@ -605,6 +659,8 @@ class SchedulerApp:
     def on_algorithm_change(self, event=None):
         self.update_quantum_state()
         self.update_summary_cards()
+        self.algorithm_help_label.configure(text=self.ALGORITHM_HELP.get(self.get_selected_algorithm(), ""))
+        self.highlight_selected_algorithm()
 
         if not self.processes:
             return
@@ -663,6 +719,16 @@ class SchedulerApp:
         self.best_algorithm_label.configure(
             text=f"Best Algorithm: {best_row[0]}  |  Avg WT: {best_row[1]}  |  Avg TAT: {best_row[2]}"
         )
+        self.highlight_selected_algorithm()
+
+    def highlight_selected_algorithm(self):
+        selected_algorithm = self.get_selected_algorithm()
+        for item_id in self.comparison_tree.get_children():
+            row_values = self.comparison_tree.item(item_id, "values")
+            if row_values and row_values[0] == selected_algorithm:
+                self.comparison_tree.item(item_id, tags=("selected_algorithm",))
+            else:
+                self.comparison_tree.item(item_id, tags=())
 
     def export_current_results(self):
         if not self.last_result_rows:
@@ -682,8 +748,10 @@ class SchedulerApp:
             writer.writerow(["Algorithm", self.algo_var.get()])
             writer.writerow(["Average Waiting Time", self.summary_cards["Avg WT"].cget("text")])
             writer.writerow(["Average Turnaround Time", self.summary_cards["Avg TAT"].cget("text")])
+            writer.writerow(["CPU Idle Time", self.summary_cards["Idle Time"].cget("text")])
+            writer.writerow(["CPU Utilization", self.summary_cards["CPU Util"].cget("text")])
             writer.writerow([])
-            writer.writerow(["PID", "Completion Time", "Turnaround Time", "Waiting Time"])
+            writer.writerow(["PID", "Completion Time", "Turnaround Time", "Waiting Time", "Response Time"])
             writer.writerows(self.last_result_rows)
 
         messagebox.showinfo("Export Complete", f"Results exported to:\n{file_path}")
@@ -708,6 +776,10 @@ class SchedulerApp:
                 writer.writerow([algorithm_name, avg_wt, avg_tat])
 
         messagebox.showinfo("Export Complete", f"Comparison exported to:\n{file_path}")
+
+    def reset_simulation(self):
+        self.clear_simulation_outputs()
+        self.update_summary_cards()
 
     # ------------------ Gantt ------------------
     def show_gantt_chart(self, timeline):
@@ -787,7 +859,8 @@ class SchedulerApp:
         self.solution_text.insert(tk.END, f"Execution Order: {execution_order}\n\n")
 
         for p in result:
-            row = (p.pid, p.completion_time, p.turnaround_time, p.waiting_time)
+            response_time = p.start_time - p.arrival_time
+            row = (p.pid, p.completion_time, p.turnaround_time, p.waiting_time, response_time)
             self.last_result_rows.append(row)
             self.results_tree.insert(
                 "",
@@ -798,15 +871,25 @@ class SchedulerApp:
             self.solution_text.insert(
                 tk.END,
                 f"{p.pid}: TAT={p.completion_time}-{p.arrival_time}={p.turnaround_time}, "
-                f"WT={p.turnaround_time}-{p.burst_time}={p.waiting_time}\n"
+                f"WT={p.turnaround_time}-{p.burst_time}={p.waiting_time}, "
+                f"RT={p.start_time}-{p.arrival_time}={response_time}\n"
             )
 
         avg_wt = sum(p.waiting_time for p in result) / len(result)
         avg_tat = sum(p.turnaround_time for p in result) / len(result)
+        avg_rt = sum(p.start_time - p.arrival_time for p in result) / len(result)
+        completion_time = max(p.completion_time for p in result)
+        total_burst_time = sum(p.burst_time for p in result)
+        idle_time = max(0, completion_time - total_burst_time)
+        cpu_utilization = (total_burst_time / completion_time * 100) if completion_time else 0
         self.averages_label.configure(
             text=f"Average Waiting Time: {avg_wt:.2f}    Average Turnaround Time: {avg_tat:.2f}"
         )
-        self.update_summary_cards(f"{avg_wt:.2f}", f"{avg_tat:.2f}")
+        self.performance_label.configure(
+            text=f"Response Time Avg: {avg_rt:.2f}    CPU Idle Time: {idle_time}    CPU Utilization: {cpu_utilization:.2f}%"
+        )
+        self.update_summary_cards(f"{avg_wt:.2f}", f"{avg_tat:.2f}", str(idle_time), f"{cpu_utilization:.2f}%")
+        self.highlight_selected_algorithm()
 
 
 if __name__ == "__main__":

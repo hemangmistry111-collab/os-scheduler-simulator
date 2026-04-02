@@ -11,6 +11,7 @@ def round_robin_scheduling(process_list, quantum):
 
     for p in process_list:
         p.remaining_time = p.burst_time
+        p.start_time = -1
 
     i = 0
 
@@ -26,6 +27,8 @@ def round_robin_scheduling(process_list, quantum):
         p = queue.popleft()
 
         start = current_time
+        if p.start_time == -1:
+            p.start_time = start
         execute_time = min(quantum, p.remaining_time)
         current_time += execute_time
         p.remaining_time -= execute_time
