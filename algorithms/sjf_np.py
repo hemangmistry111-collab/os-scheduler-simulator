@@ -2,44 +2,36 @@ def sjf_non_preemptive(process_list):
     n = len(process_list)
     completed = 0
     current_time = 0
-
-    timeline = []
     visited = [False] * n
-
-    for p in process_list:
-        p.start_time = 0
-        p.completion_time = 0
-        p.waiting_time = 0
-        p.turnaround_time = 0
+    timeline = []
 
     while completed < n:
         idx = -1
-        min_burst = float("inf")
+        min_bt = float("inf")
 
         for i in range(n):
-            if process_list[i].arrival_time <= current_time and not visited[i]:
-                if process_list[i].burst_time < min_burst:
-                    min_burst = process_list[i].burst_time
-                    idx = i
+            if (process_list[i].arrival_time <= current_time and
+                not visited[i] and
+                process_list[i].burst_time < min_bt):
+                min_bt = process_list[i].burst_time
+                idx = i
 
         if idx == -1:
-            next_arrival = min([p.arrival_time for i, p in enumerate(process_list) if not visited[i]])
-            timeline.append(("IDLE", current_time, next_arrival))
-            current_time = next_arrival
+            current_time += 1
             continue
 
-        process = process_list[idx]
+        p = process_list[idx]
         visited[idx] = True
 
-        process.start_time = current_time
-        process.completion_time = current_time + process.burst_time
+        p.start_time = current_time
+        p.completion_time = current_time + p.burst_time
 
-        process.turnaround_time = process.completion_time - process.arrival_time
-        process.waiting_time = process.turnaround_time - process.burst_time
+        p.turnaround_time = p.completion_time - p.arrival_time
+        p.waiting_time = p.turnaround_time - p.burst_time
 
-        timeline.append((process.pid, process.start_time, process.completion_time))
+        timeline.append((p.pid, p.start_time, p.completion_time))
 
-        current_time = process.completion_time
+        current_time = p.completion_time
         completed += 1
 
     return process_list, timeline
