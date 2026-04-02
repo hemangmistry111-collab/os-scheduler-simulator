@@ -6,12 +6,15 @@ from algorithms.fcfs import fcfs_scheduling
 from algorithms.round_robin import round_robin_scheduling
 from algorithms.sjf_np import sjf_non_preemptive
 from algorithms.priority_np import priority_non_preemptive
+from algorithms.srtf import srtf_scheduling
+from algorithms.priority_p import priority_preemptive
+from algorithms.ljf_np import ljf_non_preemptive
 
 
 class SchedulerApp:
     def __init__(self, root):
         self.root = root
-        self.root.title("OS Scheduler Simulator")
+        self.root.title("OS Process Scheduler Simulator")
         self.root.state("zoomed")
 
         self.processes = []
@@ -26,7 +29,6 @@ class SchedulerApp:
         main_canvas.configure(yscrollcommand=scroll_y.set)
 
         self.main_frame = tk.Frame(main_canvas)
-
         self.canvas_window = main_canvas.create_window((0, 0), window=self.main_frame, anchor="nw")
 
         def resize_frame(event):
@@ -39,61 +41,52 @@ class SchedulerApp:
             lambda e: main_canvas.configure(scrollregion=main_canvas.bbox("all"))
         )
 
-        # ------------------ Heading ------------------
-        title = tk.Label(self.main_frame, text="OS Process Scheduler Simulator",
-                         font=("Arial", 22, "bold"))
-        title.pack(pady=10)
+        # ------------------ Title ------------------
+        tk.Label(self.main_frame,
+                 text="OS Process Scheduler Simulator",
+                 font=("Arial", 22, "bold")).pack(pady=10)
 
         # ------------------ Input Frame ------------------
         input_frame = tk.Frame(self.main_frame, padx=10, pady=10, relief="ridge", bd=2)
         input_frame.pack(fill="x", padx=15)
 
-        tk.Label(input_frame, text="Process ID:").grid(row=0, column=0, padx=5, pady=5)
-        tk.Label(input_frame, text="Arrival Time:").grid(row=0, column=2, padx=5, pady=5)
-        tk.Label(input_frame, text="Burst Time:").grid(row=0, column=4, padx=5, pady=5)
-        tk.Label(input_frame, text="Priority:").grid(row=0, column=6, padx=5, pady=5)
+        tk.Label(input_frame, text="PID").grid(row=0, column=0)
+        tk.Label(input_frame, text="Arrival").grid(row=0, column=2)
+        tk.Label(input_frame, text="Burst").grid(row=0, column=4)
+        tk.Label(input_frame, text="Priority").grid(row=0, column=6)
 
-        self.pid_entry = tk.Entry(input_frame, width=15)
-        self.pid_entry.grid(row=0, column=1, padx=5, pady=5)
+        self.pid_entry = tk.Entry(input_frame, width=12)
+        self.at_entry = tk.Entry(input_frame, width=12)
+        self.bt_entry = tk.Entry(input_frame, width=12)
+        self.pr_entry = tk.Entry(input_frame, width=12)
 
-        self.at_entry = tk.Entry(input_frame, width=15)
-        self.at_entry.grid(row=0, column=3, padx=5, pady=5)
+        self.pid_entry.grid(row=0, column=1, padx=5)
+        self.at_entry.grid(row=0, column=3, padx=5)
+        self.bt_entry.grid(row=0, column=5, padx=5)
+        self.pr_entry.grid(row=0, column=7, padx=5)
 
-        self.bt_entry = tk.Entry(input_frame, width=15)
-        self.bt_entry.grid(row=0, column=5, padx=5, pady=5)
+        tk.Button(input_frame, text="Add Process",
+                  command=self.add_process).grid(row=0, column=8, padx=10)
 
-        self.pr_entry = tk.Entry(input_frame, width=15)
-        self.pr_entry.grid(row=0, column=7, padx=5, pady=5)
+        # ------------------ Table ------------------
+        table_frame = tk.Frame(self.main_frame)
+        table_frame.pack(fill="both", expand=True, padx=15, pady=10)
 
-        add_btn = tk.Button(input_frame, text="Add Process", width=15, command=self.add_process)
-        add_btn.grid(row=0, column=8, padx=15)
+        self.tree = ttk.Treeview(
+            table_frame,
+            columns=("PID", "AT", "BT", "PR"),
+            show="headings"
+        )
 
-        # ------------------ Process Table ------------------
-        table_frame = tk.Frame(self.main_frame, padx=10, pady=10)
-        table_frame.pack(fill="both", expand=True, padx=15)
+        for col in ("PID", "AT", "BT", "PR"):
+            self.tree.heading(col, text=col)
+            self.tree.column(col, width=150, anchor="center")
 
-        self.tree = ttk.Treeview(table_frame, columns=("PID", "AT", "BT", "PR"), show="headings", height=7)
-        self.tree.heading("PID", text="Process ID")
-        self.tree.heading("AT", text="Arrival Time")
-        self.tree.heading("BT", text="Burst Time")
-        self.tree.heading("PR", text="Priority")
-
-        self.tree.column("PID", width=250, anchor="center")
-        self.tree.column("AT", width=250, anchor="center")
-        self.tree.column("BT", width=250, anchor="center")
-        self.tree.column("PR", width=250, anchor="center")
-
-        self.tree.pack(side="left", fill="both", expand=True)
-
-        scrollbar = ttk.Scrollbar(table_frame, orient="vertical", command=self.tree.yview)
-        scrollbar.pack(side="right", fill="y")
-        self.tree.configure(yscrollcommand=scrollbar.set)
+        self.tree.pack(fill="both", expand=True)
 
         # ------------------ Algorithm Frame ------------------
         algo_frame = tk.Frame(self.main_frame, padx=10, pady=10, relief="ridge", bd=2)
-        algo_frame.pack(fill="x", padx=15, pady=10)
-
-        tk.Label(algo_frame, text="Select Algorithm:", font=("Arial", 12, "bold")).grid(row=0, column=0, padx=5)
+        algo_frame.pack(fill="x", padx=15)
 
         self.algo_var = tk.StringVar()
 
@@ -103,76 +96,53 @@ class SchedulerApp:
             values=[
                 "FCFS",
                 "SJF (Non Preemptive)",
+                "LJF (Non Preemptive)",
                 "Round Robin",
-                "Priority (Non Preemptive)"
+                "Priority (Non Preemptive)",
+                "Priority (Preemptive)",
+                "SRTF (Preemptive SJF)"
             ],
             state="readonly",
             width=30
         )
-        self.algo_dropdown.grid(row=0, column=1, padx=10)
+        self.algo_dropdown.grid(row=0, column=0, padx=10)
         self.algo_dropdown.current(0)
 
-        tk.Label(algo_frame, text="Time Quantum (RR):", font=("Arial", 11)).grid(row=0, column=2, padx=5)
+        tk.Label(algo_frame, text="Time Quantum").grid(row=0, column=1)
+        self.quantum_entry = tk.Entry(algo_frame, width=10)
+        self.quantum_entry.grid(row=0, column=2)
 
-        self.quantum_entry = tk.Entry(algo_frame, width=12)
-        self.quantum_entry.grid(row=0, column=3, padx=5)
+        tk.Button(algo_frame, text="Simulate",
+                  command=self.simulate).grid(row=0, column=3, padx=10)
 
-        simulate_btn = tk.Button(algo_frame, text="Simulate", width=12, command=self.simulate)
-        simulate_btn.grid(row=0, column=4, padx=10)
+        # ------------------ Results ------------------
+        self.output_text = tk.Text(self.main_frame, height=8)
+        self.output_text.pack(fill="both", expand=True, padx=15, pady=5)
 
-        clear_btn = tk.Button(algo_frame, text="Clear All", width=12, command=self.clear_all)
-        clear_btn.grid(row=0, column=5, padx=10)
+        # ------------------ Math Solution ------------------
+        self.solution_text = tk.Text(self.main_frame, height=8)
+        self.solution_text.pack(fill="both", expand=True, padx=15, pady=5)
 
-        # ------------------ Results Frame ------------------
-        output_frame = tk.Frame(self.main_frame, padx=10, pady=10, relief="ridge", bd=2)
-        output_frame.pack(fill="both", expand=True, padx=15, pady=10)
-
-        tk.Label(output_frame, text="Results:", font=("Arial", 12, "bold")).pack(anchor="w")
-
-        self.output_text = tk.Text(output_frame, height=8, font=("Consolas", 12))
-        self.output_text.pack(fill="both", expand=True)
-
-        # ------------------ Mathematical Solution Frame ------------------
-        solution_frame = tk.Frame(self.main_frame, padx=10, pady=10, relief="ridge", bd=2)
-        solution_frame.pack(fill="both", expand=True, padx=15, pady=10)
-
-        tk.Label(solution_frame, text="Mathematical Solution (Working):", font=("Arial", 12, "bold")).pack(anchor="w")
-
-        self.solution_text = tk.Text(solution_frame, height=10, font=("Consolas", 12))
-        self.solution_text.pack(fill="both", expand=True)
-
-        # ------------------ Gantt Chart Frame ------------------
-        gantt_frame = tk.Frame(self.main_frame, padx=10, pady=10, relief="ridge", bd=2)
+        # ------------------ Gantt Chart ------------------
+        gantt_frame = tk.Frame(self.main_frame)
         gantt_frame.pack(fill="both", expand=True, padx=15, pady=10)
 
-        tk.Label(gantt_frame, text="Gantt Chart:", font=("Arial", 12, "bold")).pack(anchor="w")
-
-        self.gantt_canvas = tk.Canvas(gantt_frame, bg="white", height=200)
-        self.gantt_canvas.pack(side="top", fill="both", expand=True)
-
-        gantt_scrollbar = ttk.Scrollbar(gantt_frame, orient="horizontal", command=self.gantt_canvas.xview)
-        gantt_scrollbar.pack(side="bottom", fill="x")
-
-        self.gantt_canvas.configure(xscrollcommand=gantt_scrollbar.set)
+        self.gantt_canvas = tk.Canvas(gantt_frame, height=200, bg="white")
+        self.gantt_canvas.pack(fill="both", expand=True)
 
     # ------------------ Add Process ------------------
     def add_process(self):
-        pid = self.pid_entry.get().strip()
-        at = self.at_entry.get().strip()
-        bt = self.bt_entry.get().strip()
-        pr = self.pr_entry.get().strip()
+        pid = self.pid_entry.get()
+        at = self.at_entry.get()
+        bt = self.bt_entry.get()
+        pr = self.pr_entry.get()
 
-        if pid == "" or at == "" or bt == "" or pr == "":
-            messagebox.showerror("Error", "Please fill all fields including Priority.")
-            return
-
-        if not at.isdigit() or not bt.isdigit() or not pr.isdigit():
-            messagebox.showerror("Error", "Arrival Time, Burst Time, Priority must be integers.")
+        if not (pid and at.isdigit() and bt.isdigit() and pr.isdigit()):
+            messagebox.showerror("Error", "Enter valid inputs")
             return
 
         process = Process(pid, int(at), int(bt), int(pr))
         self.processes.append(process)
-
         self.tree.insert("", "end", values=(pid, at, bt, pr))
 
         self.pid_entry.delete(0, tk.END)
@@ -180,108 +150,79 @@ class SchedulerApp:
         self.bt_entry.delete(0, tk.END)
         self.pr_entry.delete(0, tk.END)
 
-    # ------------------ Gantt Chart Drawing ------------------
+    # ------------------ Gantt ------------------
     def show_gantt_chart(self, timeline):
         self.gantt_canvas.delete("all")
 
-        start_x = 30
-        y1, y2 = 50, 120
-        scale = 60
-
-        max_time = timeline[-1][2]
+        scale = 40
+        y1, y2 = 60, 120
 
         for pid, start, end in timeline:
-            x1 = start_x + start * scale
-            x2 = start_x + end * scale
+            x1 = 30 + start * scale
+            x2 = 30 + end * scale
 
-            color = "lightgray" if pid == "IDLE" else "skyblue"
+            self.gantt_canvas.create_rectangle(x1, y1, x2, y2,
+                                               fill="skyblue", outline="black")
+            self.gantt_canvas.create_text((x1 + x2) / 2,
+                                          (y1 + y2) / 2,
+                                          text=pid)
 
-            self.gantt_canvas.create_rectangle(x1, y1, x2, y2, fill=color, outline="black")
-            self.gantt_canvas.create_text((x1 + x2) / 2, (y1 + y2) / 2, text=pid, font=("Arial", 10, "bold"))
-            self.gantt_canvas.create_text(x1, y2 + 20, text=str(start), font=("Arial", 9))
+            self.gantt_canvas.create_text(x1, y2 + 20, text=str(start))
 
-        self.gantt_canvas.create_text(start_x + max_time * scale, y2 + 20, text=str(max_time), font=("Arial", 9))
-
-        self.gantt_canvas.configure(scrollregion=self.gantt_canvas.bbox("all"))
-
-    # ------------------ Mathematical Solution ------------------
-    def show_math_solution(self, result):
-        self.solution_text.delete("1.0", tk.END)
-
-        for p in result:
-            self.solution_text.insert(tk.END, f"{p.pid}:\n")
-            self.solution_text.insert(tk.END, f"ST = {p.start_time}\n")
-            self.solution_text.insert(tk.END, f"CT = ST + BT = {p.start_time} + {p.burst_time} = {p.completion_time}\n")
-            self.solution_text.insert(tk.END, f"TAT = CT - AT = {p.completion_time} - {p.arrival_time} = {p.turnaround_time}\n")
-            self.solution_text.insert(tk.END, f"WT = TAT - BT = {p.turnaround_time} - {p.burst_time} = {p.waiting_time}\n")
-            self.solution_text.insert(tk.END, "-" * 70 + "\n")
+        self.gantt_canvas.create_text(
+            30 + timeline[-1][2] * scale,
+            y2 + 20,
+            text=str(timeline[-1][2])
+        )
 
     # ------------------ Simulate ------------------
     def simulate(self):
-        if len(self.processes) == 0:
-            messagebox.showerror("Error", "No processes added!")
+        if not self.processes:
+            messagebox.showerror("Error", "No processes added")
             return
+
+        process_list = [
+            Process(p.pid, p.arrival_time, p.burst_time, p.priority)
+            for p in self.processes
+        ]
 
         algo = self.algo_var.get()
 
         if algo == "FCFS":
-            result, timeline = fcfs_scheduling(self.processes)
-
+            result, timeline = fcfs_scheduling(process_list)
         elif algo == "SJF (Non Preemptive)":
-            result, timeline = sjf_non_preemptive(self.processes)
-
+            result, timeline = sjf_non_preemptive(process_list)
+        elif algo == "LJF (Non Preemptive)":
+            result, timeline = ljf_non_preemptive(process_list)
         elif algo == "Round Robin":
-            tq = self.quantum_entry.get().strip()
-
-            if tq == "" or not tq.isdigit() or int(tq) <= 0:
-                messagebox.showerror("Error", "Please enter valid Time Quantum for Round Robin.")
+            tq = self.quantum_entry.get()
+            if not tq.isdigit():
+                messagebox.showerror("Error", "Enter valid quantum")
                 return
-
-            result, timeline = round_robin_scheduling(self.processes, int(tq))
-
+            result, timeline = round_robin_scheduling(process_list, int(tq))
         elif algo == "Priority (Non Preemptive)":
-            result, timeline = priority_non_preemptive(self.processes)
-
-        else:
-            messagebox.showerror("Error", f"{algo} is not implemented yet.")
-            return
+            result, timeline = priority_non_preemptive(process_list)
+        elif algo == "Priority (Preemptive)":
+            result, timeline = priority_preemptive(process_list)
+        elif algo == "SRTF (Preemptive SJF)":
+            result, timeline = srtf_scheduling(process_list)
 
         self.show_gantt_chart(timeline)
-        self.show_math_solution(result)
-
-        self.output_text.delete("1.0", tk.END)
-        self.output_text.insert(tk.END, "PID\tAT\tBT\tPR\tWT\tTAT\n")
-        self.output_text.insert(tk.END, "-" * 80 + "\n")
-
-        total_wt = 0
-        total_tat = 0
-
-        for p in result:
-            total_wt += p.waiting_time
-            total_tat += p.turnaround_time
-
-            self.output_text.insert(
-                tk.END,
-                f"{p.pid}\t{p.arrival_time}\t{p.burst_time}\t{p.priority}\t{p.waiting_time}\t{p.turnaround_time}\n"
-            )
-
-        avg_wt = total_wt / len(result)
-        avg_tat = total_tat / len(result)
-
-        self.output_text.insert(tk.END, "-" * 80 + "\n")
-        self.output_text.insert(tk.END, f"Average Waiting Time: {avg_wt:.2f}\n")
-        self.output_text.insert(tk.END, f"Average Turnaround Time: {avg_tat:.2f}\n")
-
-    # ------------------ Clear All ------------------
-    def clear_all(self):
-        self.processes.clear()
-
-        for row in self.tree.get_children():
-            self.tree.delete(row)
 
         self.output_text.delete("1.0", tk.END)
         self.solution_text.delete("1.0", tk.END)
-        self.gantt_canvas.delete("all")
+
+        for p in result:
+            self.output_text.insert(
+                tk.END,
+                f"{p.pid} | WT={p.waiting_time} | TAT={p.turnaround_time}\n"
+            )
+
+            self.solution_text.insert(
+                tk.END,
+                f"{p.pid}: TAT={p.completion_time}-{p.arrival_time}={p.turnaround_time}, "
+                f"WT={p.turnaround_time}-{p.burst_time}={p.waiting_time}\n"
+            )
 
 
 if __name__ == "__main__":

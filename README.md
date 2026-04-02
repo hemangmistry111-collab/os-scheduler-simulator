@@ -4,6 +4,12 @@ A Python-based simulator for CPU scheduling algorithms used in Operating Systems
 
 ## Algorithms Implemented
 - First Come First Serve (FCFS)
+- Shortest Job First (Non-Preemptive)
+- Longest Job First (Non-Preemptive)
+- Shortest Remaining Time First (Preemptive SJF)
+- Priority Scheduling (Non-Preemptive)
+- Priority Scheduling (Preemptive)
+- Round Robin
 
 ## Technologies Used
 - Python

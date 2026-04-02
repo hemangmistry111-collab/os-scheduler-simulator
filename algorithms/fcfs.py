@@ -16,7 +16,6 @@ def fcfs_scheduling(process_list):
         process.waiting_time = process.turnaround_time - process.burst_time
 
         timeline.append((process.pid, process.start_time, process.completion_time))
-
         current_time = process.completion_time
 
     return process_list, timeline
