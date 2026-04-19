@@ -10,69 +10,11 @@ from algorithms.ljf_np import ljf_non_preemptive
 from algorithms.priority_np import priority_non_preemptive
 from algorithms.priority_p import priority_preemptive
 from algorithms.srtf import srtf_scheduling
-
-
-# ============================================================
-# Design tokens — central palette for consistent theming.
-# Inspired by modern dashboard UIs (Linear / Vercel / GitHub).
-# Slate-blue base with indigo primary and amber as accent.
-# ============================================================
-class Palette:
-    # Surface hierarchy (darkest -> lightest)
-    BG_APP        = "#0f172a"   # app background (deep slate)
-    BG_SURFACE    = "#1e293b"   # cards / panels
-    BG_SURFACE_2  = "#273449"   # nested surfaces / rows on hover
-    BG_INPUT      = "#0b1220"   # inputs, canvas, code/text areas
-
-    # Borders
-    BORDER        = "#334155"   # default border
-    BORDER_SOFT   = "#1f2a3d"   # subtle divider
-    BORDER_FOCUS  = "#6366f1"   # focus ring (indigo)
-
-    # Text
-    TEXT_PRIMARY   = "#f1f5f9"  # main text
-    TEXT_SECONDARY = "#cbd5e1"  # labels
-    TEXT_MUTED     = "#94a3b8"  # helper text
-    TEXT_SUBTLE    = "#64748b"  # footers, captions
-
-    # Primary action (indigo)
-    PRIMARY        = "#6366f1"
-    PRIMARY_HOVER  = "#4f46e5"
-    PRIMARY_TEXT   = "#ffffff"
-
-    # Secondary button (ghost)
-    GHOST_BG       = "#1e293b"
-    GHOST_BG_HOVER = "#2a3a55"
-    GHOST_TEXT     = "#e2e8f0"
-
-    # Accent / highlight (amber) — used sparingly
-    ACCENT         = "#f59e0b"
-    ACCENT_SOFT    = "#fbbf24"
-
-    # Semantic
-    SUCCESS        = "#10b981"
-    DANGER         = "#ef4444"
-
-    # Table alternating rows
-    ROW_EVEN       = "#172033"
-    ROW_ODD        = "#1c2741"
-    ROW_SELECTED   = "#312e81"   # indigo-900 for row selection
-    ROW_SELECTED_FG = "#ffffff"
-
-    # Gantt chart colors — cooler, more professional than pure orange
-    GANTT_COLORS = [
-        "#6366f1",  # indigo
-        "#0ea5e9",  # sky
-        "#14b8a6",  # teal
-        "#8b5cf6",  # violet
-        "#f59e0b",  # amber
-        "#ec4899",  # pink
-        "#22c55e",  # green
-    ]
+from theme import Palette, configure_ttk_styles, build_widget_styles
 
 
 class SchedulerApp:
-    # Font fallback chains - resolved at runtime based on availability
+
     DISPLAY_FONT_CANDIDATES = ("Stencil", "Impact", "Segoe UI", "Helvetica")
     UI_FONT_CANDIDATES = ("Segoe UI", "Helvetica", "Arial", "TkDefaultFont")
     MONO_FONT_CANDIDATES = ("Consolas", "Menlo", "Courier New", "TkFixedFont")
@@ -120,7 +62,7 @@ class SchedulerApp:
 
         self._resolve_fonts()
 
-        # State
+
         self.processes = []
         self.selected_process_index = None
         self.last_result_rows = []
@@ -138,7 +80,7 @@ class SchedulerApp:
         self.update_summary_cards()
         self.show_gantt_chart([])
 
-    # ==================== Platform / font helpers ====================
+
     def _apply_zoomed_state(self):
         try:
             self.root.state("zoomed")
@@ -161,9 +103,8 @@ class SchedulerApp:
         self.UI_FONT = pick(self.UI_FONT_CANDIDATES)
         self.MONO_FONT = pick(self.MONO_FONT_CANDIDATES)
 
-    # ==================== Small styled-widget helpers ====================
+
     def _card(self, parent, **pack_kwargs):
-        """Return a styled card frame. Use for elevated sections."""
         frame = tk.Frame(
             parent,
             bg=Palette.BG_SURFACE,
@@ -176,7 +117,6 @@ class SchedulerApp:
         return frame
 
     def _section_title(self, parent, text, subtitle=None):
-        """Title + optional subtitle inside a card."""
         tk.Label(
             parent, text=text,
             font=(self.DISPLAY_FONT, 14, "bold"),
@@ -191,23 +131,23 @@ class SchedulerApp:
         else:
             tk.Frame(parent, bg=Palette.BG_SURFACE, height=6).pack()
 
-    # ==================== Layout builders ====================
+
     def _build_main_layout(self):
         self.main_frame = tk.Frame(self.root, bg=Palette.BG_APP)
         self.main_frame.pack(fill="both", expand=True)
 
-        # ------------------ Header ------------------
+
         header_frame = tk.Frame(
             self.main_frame, bg=Palette.BG_SURFACE,
             highlightthickness=1, highlightbackground=Palette.BORDER,
         )
         header_frame.pack(fill="x", padx=28, pady=(24, 18))
 
-        # Left: title block
+
         header_text = tk.Frame(header_frame, bg=Palette.BG_SURFACE)
         header_text.pack(side="left", fill="both", expand=True, padx=28, pady=24)
 
-        # Small eyebrow label
+
         eyebrow_row = tk.Frame(header_text, bg=Palette.BG_SURFACE)
         eyebrow_row.pack(anchor="w")
         tk.Frame(eyebrow_row, bg=Palette.PRIMARY, width=3, height=14).pack(
@@ -230,7 +170,7 @@ class SchedulerApp:
             fg=Palette.TEXT_MUTED, bg=Palette.BG_SURFACE,
         ).pack(anchor="w", pady=(8, 0))
 
-        # Right: status card
+
         header_stats = tk.Frame(header_frame, bg=Palette.BG_SURFACE)
         header_stats.pack(side="right", padx=28, pady=24)
 
@@ -258,7 +198,7 @@ class SchedulerApp:
         )
         self.header_process_count_label.pack(anchor="w")
 
-        # ------------------ Notebook ------------------
+
         self.notebook = ttk.Notebook(self.main_frame, style="Scheduler.TNotebook")
         self.notebook.pack(fill="both", expand=True, padx=28, pady=(0, 18))
 
@@ -291,7 +231,7 @@ class SchedulerApp:
         )
 
     def _build_processes_tab(self):
-        # ------------------ Input Card ------------------
+
         input_card = self._card(self.processes_page)
         input_card.pack(fill="x", pady=(0, 16))
 
@@ -303,7 +243,7 @@ class SchedulerApp:
         input_frame = tk.Frame(input_card, bg=Palette.BG_SURFACE)
         input_frame.pack(fill="x", padx=22, pady=(0, 22))
 
-        # Column labels above each entry
+
         for col_index, header in (
             (1, "Process ID"), (3, "Arrival"), (5, "Burst"), (7, "Priority"),
         ):
@@ -345,7 +285,7 @@ class SchedulerApp:
         for column in (1, 3, 5, 7, 8, 9):
             input_frame.grid_columnconfigure(column, weight=1)
 
-        # ------------------ Queued Processes Card ------------------
+
         table_outer = self._card(self.processes_page)
         table_outer.pack(fill="both", expand=True, pady=(0, 16))
 
@@ -397,7 +337,7 @@ class SchedulerApp:
         self._apply_tree_row_styles(self.tree)
 
     def _build_simulation_tab(self):
-        # ------------------ Algorithm Controls ------------------
+
         algo_card = self._card(self.simulation_page)
         algo_card.pack(fill="x", pady=(0, 16))
 
@@ -435,7 +375,7 @@ class SchedulerApp:
             command=self.compare_algorithms, **self.secondary_button_style,
         ).grid(row=0, column=4, padx=(12, 0), sticky="ew")
 
-        # Help label — styled like an info chip
+
         help_chip = tk.Frame(
             algo_card, bg=Palette.BG_INPUT,
             highlightthickness=1, highlightbackground=Palette.BORDER_SOFT,
@@ -463,7 +403,7 @@ class SchedulerApp:
         self.algo_dropdown.bind("<<ComboboxSelected>>", self.on_algorithm_change)
         self.update_quantum_state()
 
-        # ------------------ Summary cards ------------------
+
         summary_frame = tk.Frame(self.simulation_page, bg=Palette.BG_APP)
         summary_frame.pack(fill="x", pady=(0, 16))
 
@@ -481,7 +421,7 @@ class SchedulerApp:
                 summary_frame, card_title, accent_color)
         summary_frame.winfo_children()[-1].pack_configure(padx=(0, 0))
 
-        # ------------------ Results ------------------
+
         output_card = self._card(self.simulation_page)
         output_card.pack(fill="both", expand=True, pady=(0, 16))
 
@@ -504,7 +444,7 @@ class SchedulerApp:
         results_scroll.pack(side="right", fill="y")
         self._apply_tree_row_styles(self.results_tree)
 
-        # Metric summary lines
+
         metric_strip = tk.Frame(output_card, bg=Palette.BG_SURFACE)
         metric_strip.pack(fill="x", padx=22, pady=(0, 8))
         self.averages_label = tk.Label(
@@ -530,14 +470,14 @@ class SchedulerApp:
             **self.secondary_button_style,
         ).pack(side="left")
 
-        # ------------------ Working (solution trace) ------------------
+
         solution_card = self._card(self.simulation_page)
         solution_card.pack(fill="both", expand=True, pady=(0, 16))
         self._section_title(solution_card, "Working")
         self.solution_text = tk.Text(solution_card, height=8, **self.text_style)
         self.solution_text.pack(fill="both", expand=True, padx=22, pady=(0, 22))
 
-        # ------------------ Gantt Chart ------------------
+
         gantt_card = self._card(self.simulation_page)
         gantt_card.pack(fill="both", expand=True, pady=(0, 16))
         self._section_title(
@@ -551,7 +491,7 @@ class SchedulerApp:
         )
         self.gantt_canvas.pack(fill="both", expand=True, padx=22, pady=(0, 22))
 
-        # ------------------ Reset button ------------------
+
         footer_actions = tk.Frame(self.simulation_page, bg=Palette.BG_APP)
         footer_actions.pack(fill="x", pady=(0, 10))
         tk.Button(
@@ -593,7 +533,7 @@ class SchedulerApp:
             **self.secondary_button_style,
         ).pack(side="left")
 
-        # "Best algorithm" highlighted banner
+
         best_banner = tk.Frame(
             comparison_card, bg=Palette.BG_SURFACE_2,
             highlightthickness=1, highlightbackground=Palette.BORDER,
@@ -633,139 +573,15 @@ class SchedulerApp:
             fg=Palette.TEXT_SUBTLE, bg=Palette.BG_APP,
         ).pack(anchor="center", pady=(4, 0))
 
-    # ==================== ttk styling + widget style dicts ====================
+
     def _setup_styles(self):
-        style = ttk.Style()
-        style.theme_use("clam")
-
-        # Notebook
-        style.configure(
-            "Scheduler.TNotebook",
-            background=Palette.BG_APP, borderwidth=0, tabmargins=[0, 0, 0, 10])
-        style.configure(
-            "Scheduler.TNotebook.Tab",
-            background=Palette.BG_SURFACE,
-            foreground=Palette.TEXT_MUTED,
-            padding=(22, 12), borderwidth=0,
-            font=(self.UI_FONT, 10, "bold"),
-        )
-        style.map(
-            "Scheduler.TNotebook.Tab",
-            background=[("selected", Palette.PRIMARY), ("active", Palette.BG_SURFACE_2)],
-            foreground=[("selected", Palette.PRIMARY_TEXT), ("active", Palette.TEXT_PRIMARY)],
-        )
-
-        # Scrollbars
-        style.configure(
-            "TScrollbar",
-            troughcolor=Palette.BG_SURFACE,
-            background=Palette.BORDER,
-            bordercolor=Palette.BG_SURFACE,
-            arrowcolor=Palette.TEXT_MUTED,
-        )
-        style.map(
-            "TScrollbar",
-            background=[("active", Palette.TEXT_SUBTLE)],
-        )
-
-        # Treeview
-        style.configure(
-            "Scheduler.Treeview",
-            background=Palette.BG_INPUT,
-            foreground=Palette.TEXT_PRIMARY,
-            fieldbackground=Palette.BG_INPUT,
-            borderwidth=0, rowheight=38,
-            font=(self.UI_FONT, 10),
-        )
-        style.map(
-            "Scheduler.Treeview",
-            background=[("selected", Palette.ROW_SELECTED)],
-            foreground=[("selected", Palette.ROW_SELECTED_FG)],
-        )
-        style.configure("Scheduler.Treeview", bordercolor=Palette.BORDER)
-        style.configure(
-            "Scheduler.Treeview.Heading",
-            background=Palette.BG_SURFACE_2,
-            foreground=Palette.TEXT_SECONDARY,
-            borderwidth=0, relief="flat",
-            padding=(12, 10),
-            font=(self.UI_FONT, 9, "bold"),
-        )
-        style.map(
-            "Scheduler.Treeview.Heading",
-            background=[("active", Palette.BORDER)],
-        )
-
-        # Combobox
-        style.configure(
-            "Scheduler.TCombobox",
-            fieldbackground=Palette.BG_INPUT,
-            background=Palette.BG_INPUT,
-            foreground=Palette.TEXT_PRIMARY,
-            arrowcolor=Palette.PRIMARY,
-            bordercolor=Palette.BORDER,
-            lightcolor=Palette.BORDER,
-            darkcolor=Palette.BORDER,
-            padding=10,
-        )
-        style.map(
-            "Scheduler.TCombobox",
-            fieldbackground=[("readonly", Palette.BG_INPUT)],
-            background=[("readonly", Palette.BG_INPUT)],
-            foreground=[("readonly", Palette.TEXT_PRIMARY)],
-            selectforeground=[("readonly", Palette.TEXT_PRIMARY)],
-            selectbackground=[("readonly", Palette.BG_INPUT)],
-            bordercolor=[("focus", Palette.BORDER_FOCUS)],
-            lightcolor=[("focus", Palette.BORDER_FOCUS)],
-            darkcolor=[("focus", Palette.BORDER_FOCUS)],
-        )
-
-        # Entry style dict
-        self.entry_style = {
-            "font": (self.UI_FONT, 10),
-            "bg": Palette.BG_INPUT, "fg": Palette.TEXT_PRIMARY,
-            "insertbackground": Palette.PRIMARY,
-            "relief": "flat", "bd": 0,
-            "highlightthickness": 1,
-            "highlightbackground": Palette.BORDER,
-            "highlightcolor": Palette.BORDER_FOCUS,
-        }
-        # Primary button (indigo)
-        self.button_style = {
-            "font": (self.UI_FONT, 10, "bold"),
-            "bg": Palette.PRIMARY, "fg": Palette.PRIMARY_TEXT,
-            "activebackground": Palette.PRIMARY_HOVER,
-            "activeforeground": Palette.PRIMARY_TEXT,
-            "relief": "flat", "bd": 0, "cursor": "hand2",
-            "padx": 20, "pady": 11,
-        }
-        # Secondary (ghost) button
-        self.secondary_button_style = {
-            "font": (self.UI_FONT, 10, "bold"),
-            "bg": Palette.GHOST_BG, "fg": Palette.GHOST_TEXT,
-            "activebackground": Palette.GHOST_BG_HOVER,
-            "activeforeground": Palette.TEXT_PRIMARY,
-            "relief": "flat", "bd": 0, "cursor": "hand2",
-            "padx": 20, "pady": 11,
-        }
-        # Danger button (for Clear All)
-        self.danger_button_style = {
-            "font": (self.UI_FONT, 10, "bold"),
-            "bg": Palette.GHOST_BG, "fg": Palette.DANGER,
-            "activebackground": "#3b1218", "activeforeground": "#fca5a5",
-            "relief": "flat", "bd": 0, "cursor": "hand2",
-            "padx": 20, "pady": 11,
-        }
-        self.text_style = {
-            "font": (self.MONO_FONT, 10),
-            "bg": Palette.BG_INPUT, "fg": Palette.TEXT_PRIMARY,
-            "insertbackground": Palette.PRIMARY,
-            "relief": "flat", "bd": 0,
-            "padx": 16, "pady": 14,
-            "highlightthickness": 1,
-            "highlightbackground": Palette.BORDER,
-            "highlightcolor": Palette.BORDER_FOCUS,
-        }
+        configure_ttk_styles(self.UI_FONT)
+        styles = build_widget_styles(self.UI_FONT, self.MONO_FONT)
+        self.entry_style = styles["entry"]
+        self.button_style = styles["button"]
+        self.secondary_button_style = styles["secondary_button"]
+        self.danger_button_style = styles["danger_button"]
+        self.text_style = styles["text"]
 
     def _add_tab_banner(self, parent, title, subtitle):
         banner = tk.Frame(
@@ -789,14 +605,13 @@ class SchedulerApp:
         ).pack(anchor="w", pady=(6, 0))
 
     def _make_stat_card(self, parent, title, accent_color=Palette.PRIMARY):
-        """Build one summary card with a colored accent stripe."""
         wrapper = tk.Frame(
             parent, bg=Palette.BG_SURFACE,
             highlightthickness=1, highlightbackground=Palette.BORDER,
         )
         wrapper.pack(side="left", fill="x", expand=True, padx=(0, 12))
 
-        # Thin colored top stripe
+
         tk.Frame(wrapper, bg=accent_color, height=3).pack(fill="x")
 
         inner = tk.Frame(wrapper, bg=Palette.BG_SURFACE)
@@ -858,28 +673,27 @@ class SchedulerApp:
         tree.tag_configure("evenrow", background=Palette.ROW_EVEN, foreground=Palette.TEXT_PRIMARY)
         tree.tag_configure("oddrow", background=Palette.ROW_ODD, foreground=Palette.TEXT_PRIMARY)
 
-    # ==================== Keyboard shortcuts ====================
+
     def _bind_shortcuts(self):
-        """Global keyboard shortcuts. Bound via bind_all so they fire anywhere."""
-        # Ctrl+N — focus the PID field to start a new process
+
         self.root.bind_all("<Control-n>", lambda e: self._focus_new_process())
         self.root.bind_all("<Control-N>", lambda e: self._focus_new_process())
-        # Ctrl+R / F5 — simulate
+
         self.root.bind_all("<Control-r>", lambda e: self.simulate())
         self.root.bind_all("<Control-R>", lambda e: self.simulate())
         self.root.bind_all("<F5>", lambda e: self.simulate())
-        # Ctrl+Shift+C — compare all
+
         self.root.bind_all("<Control-Shift-C>", lambda e: self.compare_algorithms())
-        # Ctrl+E — export current results
+
         self.root.bind_all("<Control-e>", lambda e: self.export_current_results())
         self.root.bind_all("<Control-E>", lambda e: self.export_current_results())
-        # Escape — cancel edit mode (only if currently editing)
+
         self.root.bind_all("<Escape>", lambda e: self.cancel_edit()
                            if self.selected_process_index is not None else None)
-        # Delete — delete selected process (only when the processes tree has focus)
+
         self.tree.bind("<Delete>", lambda e: self.delete_selected_process())
 
-        # Live validation: reset error outline as user types
+
         for entry, field in (
             (self.pid_entry, "pid"), (self.at_entry, "at"),
             (self.bt_entry, "bt"), (self.pr_entry, "pr"),
@@ -887,32 +701,28 @@ class SchedulerApp:
             entry.bind("<KeyRelease>", lambda e, w=entry, f=field: self._live_validate(w, f))
 
     def _focus_new_process(self):
-        """Jump to the PID field and reset any edit state."""
         if self.selected_process_index is not None:
             self.cancel_edit()
         self.notebook.select(self.processes_tab)
         self.pid_entry.focus_set()
 
-    # ==================== Live validation ====================
+
     def _mark_invalid(self, entry):
-        """Draw a red focus ring on an entry."""
         entry.configure(
             highlightbackground=Palette.DANGER,
             highlightcolor=Palette.DANGER,
         )
 
     def _mark_valid(self, entry):
-        """Restore the default focus ring."""
         entry.configure(
             highlightbackground=Palette.BORDER,
             highlightcolor=Palette.BORDER_FOCUS,
         )
 
     def _live_validate(self, entry, field):
-        """Called on every keystroke. Numeric fields get color-coded feedback."""
         value = entry.get().strip()
         if field == "pid":
-            # PID is a free-form string — only flag if duplicate of another row
+
             if not value:
                 self._mark_valid(entry)
                 return
@@ -926,7 +736,7 @@ class SchedulerApp:
                 self._mark_valid(entry)
             return
 
-        # Numeric fields (at / bt / pr) — empty is neutral, not an error yet
+
         if not value:
             self._mark_valid(entry)
             return
@@ -944,11 +754,10 @@ class SchedulerApp:
         self._mark_valid(entry)
 
     def _reset_all_entry_borders(self):
-        """Clear any red error rings — called after successful add/clear."""
         for entry in (self.pid_entry, self.at_entry, self.bt_entry, self.pr_entry):
             self._mark_valid(entry)
 
-    # ==================== Input validation ====================
+
     @staticmethod
     def _parse_int(value, field_name, allow_zero=True):
         try:
@@ -961,7 +770,7 @@ class SchedulerApp:
             raise ValueError(f"{field_name} must be greater than zero")
         return n
 
-    # ==================== Process CRUD ====================
+
     def get_selected_algorithm(self):
         return self.algo_var.get() or self.ALGORITHMS[0]
 
@@ -1066,7 +875,7 @@ class SchedulerApp:
         self.update_summary_cards()
 
     def clear_all_processes(self):
-        # Only confirm if there's actually something to lose
+
         if self.processes:
             if not messagebox.askyesno(
                 "Clear all processes?",
@@ -1090,7 +899,7 @@ class SchedulerApp:
         self.simulate(show_errors=False)
         self.compare_algorithms()
 
-    # ==================== UI refresh helpers ====================
+
     def update_summary_cards(self, avg_wt="—", avg_tat="—", idle_time="—", cpu_util="—"):
         selected_algorithm = self.get_selected_algorithm()
         self.summary_cards["Processes"].configure(text=str(len(self.processes)))
@@ -1142,7 +951,7 @@ class SchedulerApp:
 
         self.simulate(show_errors=False)
 
-    # ==================== Algorithm execution ====================
+
     def run_algorithm(self, algorithm_name, process_list):
         runner = self.ALGORITHM_DISPATCH.get(algorithm_name)
         if runner is None:
@@ -1208,7 +1017,7 @@ class SchedulerApp:
             else:
                 self.comparison_tree.item(item_id, tags=())
 
-    # ==================== Exports ====================
+
     def export_current_results(self):
         if not self.last_result_rows or not self.last_metrics:
             messagebox.showerror("Error", "Run a simulation before exporting")
@@ -1267,7 +1076,7 @@ class SchedulerApp:
         self.clear_simulation_outputs()
         self.update_summary_cards()
 
-    # ==================== Gantt chart (UNCHANGED rendering logic) ====================
+
     def show_gantt_chart(self, timeline):
         self.gantt_canvas.delete("all")
 
@@ -1310,7 +1119,7 @@ class SchedulerApp:
             text=str(timeline[-1][2]),
             fill=Palette.TEXT_SECONDARY, font=(self.UI_FONT, 10))
 
-    # ==================== Simulate ====================
+
     def simulate(self, show_errors=True):
         if not self.processes:
             if show_errors:
