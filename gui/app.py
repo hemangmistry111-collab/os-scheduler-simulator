@@ -10,7 +10,7 @@ from algorithms.ljf_np import ljf_non_preemptive
 from algorithms.priority_np import priority_non_preemptive
 from algorithms.priority_p import priority_preemptive
 from algorithms.srtf import srtf_scheduling
-from theme import Palette, configure_ttk_styles, build_widget_styles
+from .theme import Palette, configure_ttk_styles, build_widget_styles
 
 
 class SchedulerApp:
