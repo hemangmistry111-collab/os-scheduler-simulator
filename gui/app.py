@@ -1,6 +1,6 @@
 import csv
 import tkinter as tk
-from tkinter import ttk, messagebox, filedialog
+from tkinter import ttk, messagebox, filedialog, font as tkfont
 
 from core.process import Process
 from algorithms.fcfs import fcfs_scheduling
@@ -12,7 +12,71 @@ from algorithms.priority_p import priority_preemptive
 from algorithms.srtf import srtf_scheduling
 
 
+# ============================================================
+# Design tokens — central palette for consistent theming.
+# Inspired by modern dashboard UIs (Linear / Vercel / GitHub).
+# Slate-blue base with indigo primary and amber as accent.
+# ============================================================
+class Palette:
+    # Surface hierarchy (darkest -> lightest)
+    BG_APP        = "#0f172a"   # app background (deep slate)
+    BG_SURFACE    = "#1e293b"   # cards / panels
+    BG_SURFACE_2  = "#273449"   # nested surfaces / rows on hover
+    BG_INPUT      = "#0b1220"   # inputs, canvas, code/text areas
+
+    # Borders
+    BORDER        = "#334155"   # default border
+    BORDER_SOFT   = "#1f2a3d"   # subtle divider
+    BORDER_FOCUS  = "#6366f1"   # focus ring (indigo)
+
+    # Text
+    TEXT_PRIMARY   = "#f1f5f9"  # main text
+    TEXT_SECONDARY = "#cbd5e1"  # labels
+    TEXT_MUTED     = "#94a3b8"  # helper text
+    TEXT_SUBTLE    = "#64748b"  # footers, captions
+
+    # Primary action (indigo)
+    PRIMARY        = "#6366f1"
+    PRIMARY_HOVER  = "#4f46e5"
+    PRIMARY_TEXT   = "#ffffff"
+
+    # Secondary button (ghost)
+    GHOST_BG       = "#1e293b"
+    GHOST_BG_HOVER = "#2a3a55"
+    GHOST_TEXT     = "#e2e8f0"
+
+    # Accent / highlight (amber) — used sparingly
+    ACCENT         = "#f59e0b"
+    ACCENT_SOFT    = "#fbbf24"
+
+    # Semantic
+    SUCCESS        = "#10b981"
+    DANGER         = "#ef4444"
+
+    # Table alternating rows
+    ROW_EVEN       = "#172033"
+    ROW_ODD        = "#1c2741"
+    ROW_SELECTED   = "#312e81"   # indigo-900 for row selection
+    ROW_SELECTED_FG = "#ffffff"
+
+    # Gantt chart colors — cooler, more professional than pure orange
+    GANTT_COLORS = [
+        "#6366f1",  # indigo
+        "#0ea5e9",  # sky
+        "#14b8a6",  # teal
+        "#8b5cf6",  # violet
+        "#f59e0b",  # amber
+        "#ec4899",  # pink
+        "#22c55e",  # green
+    ]
+
+
 class SchedulerApp:
+    # Font fallback chains - resolved at runtime based on availability
+    DISPLAY_FONT_CANDIDATES = ("Stencil", "Impact", "Segoe UI", "Helvetica")
+    UI_FONT_CANDIDATES = ("Segoe UI", "Helvetica", "Arial", "TkDefaultFont")
+    MONO_FONT_CANDIDATES = ("Consolas", "Menlo", "Courier New", "TkFixedFont")
+
     ALGORITHMS = [
         "FCFS",
         "SJF (Non Preemptive)",
@@ -38,122 +102,242 @@ class SchedulerApp:
         "SRTF (Preemptive SJF)": "Runs the process with the shortest remaining time. It is the preemptive version of SJF.",
     }
 
+    ALGORITHM_DISPATCH = {
+        "FCFS": lambda procs, tq: fcfs_scheduling(procs),
+        "SJF (Non Preemptive)": lambda procs, tq: sjf_non_preemptive(procs),
+        "LJF (Non Preemptive)": lambda procs, tq: ljf_non_preemptive(procs),
+        "Round Robin": lambda procs, tq: round_robin_scheduling(procs, tq),
+        "Priority (Non Preemptive)": lambda procs, tq: priority_non_preemptive(procs),
+        "Priority (Preemptive)": lambda procs, tq: priority_preemptive(procs),
+        "SRTF (Preemptive SJF)": lambda procs, tq: srtf_scheduling(procs),
+    }
+
     def __init__(self, root):
         self.root = root
         self.root.title("OS Process Scheduler Simulator")
-        self.root.state("zoomed")
-        self.root.configure(bg="#0b0d10")
+        self._apply_zoomed_state()
+        self.root.configure(bg=Palette.BG_APP)
 
+        self._resolve_fonts()
+
+        # State
         self.processes = []
         self.selected_process_index = None
         self.last_result_rows = []
         self.last_comparison_rows = []
+        self.last_metrics = {}
+
         self._setup_styles()
+        self._build_main_layout()
+        self._build_processes_tab()
+        self._build_simulation_tab()
+        self._build_comparison_tab()
+        self._build_footer()
+        self._bind_shortcuts()
 
-        # ------------------ MAIN SCROLLABLE CANVAS ------------------
-        main_canvas = tk.Canvas(root, bg="#0b0d10", highlightthickness=0)
-        main_canvas.pack(side="left", fill="both", expand=True)
+        self.update_summary_cards()
+        self.show_gantt_chart([])
 
-        scroll_y = ttk.Scrollbar(root, orient="vertical", command=main_canvas.yview)
-        scroll_y.pack(side="right", fill="y")
+    # ==================== Platform / font helpers ====================
+    def _apply_zoomed_state(self):
+        try:
+            self.root.state("zoomed")
+        except tk.TclError:
+            try:
+                self.root.attributes("-zoomed", True)
+            except tk.TclError:
+                self.root.geometry("1400x900")
 
-        main_canvas.configure(yscrollcommand=scroll_y.set)
+    def _resolve_fonts(self):
+        available = set(tkfont.families())
 
-        self.main_frame = tk.Frame(main_canvas, bg="#0b0d10")
-        self.canvas_window = main_canvas.create_window((0, 0), window=self.main_frame, anchor="nw")
+        def pick(candidates):
+            for name in candidates:
+                if name in available or name.startswith("Tk"):
+                    return name
+            return "TkDefaultFont"
 
-        def resize_frame(event):
-            main_canvas.itemconfig(self.canvas_window, width=event.width)
+        self.DISPLAY_FONT = pick(self.DISPLAY_FONT_CANDIDATES)
+        self.UI_FONT = pick(self.UI_FONT_CANDIDATES)
+        self.MONO_FONT = pick(self.MONO_FONT_CANDIDATES)
 
-        main_canvas.bind("<Configure>", resize_frame)
-
-        self.main_frame.bind(
-            "<Configure>",
-            lambda e: main_canvas.configure(scrollregion=main_canvas.bbox("all"))
+    # ==================== Small styled-widget helpers ====================
+    def _card(self, parent, **pack_kwargs):
+        """Return a styled card frame. Use for elevated sections."""
+        frame = tk.Frame(
+            parent,
+            bg=Palette.BG_SURFACE,
+            highlightthickness=1,
+            highlightbackground=Palette.BORDER,
+            bd=0,
         )
+        if pack_kwargs:
+            frame.pack(**pack_kwargs)
+        return frame
 
-        # ------------------ Title ------------------
-        header_frame = tk.Frame(self.main_frame, bg="#11161c", highlightthickness=1, highlightbackground="#232a33")
-        header_frame.pack(fill="x", padx=24, pady=(24, 16))
+    def _section_title(self, parent, text, subtitle=None):
+        """Title + optional subtitle inside a card."""
+        tk.Label(
+            parent, text=text,
+            font=(self.DISPLAY_FONT, 14, "bold"),
+            fg=Palette.TEXT_PRIMARY, bg=Palette.BG_SURFACE,
+        ).pack(anchor="w", padx=22, pady=(20, 2))
+        if subtitle:
+            tk.Label(
+                parent, text=subtitle,
+                font=(self.UI_FONT, 9),
+                fg=Palette.TEXT_MUTED, bg=Palette.BG_SURFACE,
+            ).pack(anchor="w", padx=22, pady=(0, 14))
+        else:
+            tk.Frame(parent, bg=Palette.BG_SURFACE, height=6).pack()
 
-        header_text = tk.Frame(header_frame, bg="#11161c")
-        header_text.pack(side="left", fill="both", expand=True, padx=24, pady=22)
+    # ==================== Layout builders ====================
+    def _build_main_layout(self):
+        self.main_frame = tk.Frame(self.root, bg=Palette.BG_APP)
+        self.main_frame.pack(fill="both", expand=True)
+
+        # ------------------ Header ------------------
+        header_frame = tk.Frame(
+            self.main_frame, bg=Palette.BG_SURFACE,
+            highlightthickness=1, highlightbackground=Palette.BORDER,
+        )
+        header_frame.pack(fill="x", padx=28, pady=(24, 18))
+
+        # Left: title block
+        header_text = tk.Frame(header_frame, bg=Palette.BG_SURFACE)
+        header_text.pack(side="left", fill="both", expand=True, padx=28, pady=24)
+
+        # Small eyebrow label
+        eyebrow_row = tk.Frame(header_text, bg=Palette.BG_SURFACE)
+        eyebrow_row.pack(anchor="w")
+        tk.Frame(eyebrow_row, bg=Palette.PRIMARY, width=3, height=14).pack(
+            side="left", padx=(0, 8))
+        tk.Label(
+            eyebrow_row, text="OPERATING SYSTEMS SCHEDULER LAB",
+            font=(self.UI_FONT, 9, "bold"),
+            fg=Palette.PRIMARY, bg=Palette.BG_SURFACE,
+        ).pack(side="left")
 
         tk.Label(
-            header_text,
-            text="Operating Systems Scheduler Lab",
-            font=("Segoe UI", 11, "bold"),
-            fg="#7dd3fc",
-            bg="#11161c",
-        ).pack(anchor="w")
-        tk.Label(
-            header_text,
-            text="OS Process Scheduler Simulator",
-            font=("Segoe UI", 28, "bold"),
-            fg="#f8fafc",
-            bg="#11161c",
-        ).pack(anchor="w", pady=(8, 0))
+            header_text, text="OS Process Scheduler Simulator",
+            font=(self.DISPLAY_FONT, 26, "bold"),
+            fg=Palette.TEXT_PRIMARY, bg=Palette.BG_SURFACE,
+        ).pack(anchor="w", pady=(10, 0))
         tk.Label(
             header_text,
             text="Build workloads, compare CPU scheduling strategies, and inspect execution timelines in one place.",
-            font=("Segoe UI", 11),
-            fg="#94a3b8",
-            bg="#11161c",
+            font=(self.UI_FONT, 10),
+            fg=Palette.TEXT_MUTED, bg=Palette.BG_SURFACE,
         ).pack(anchor="w", pady=(8, 0))
 
+        # Right: status card
+        header_stats = tk.Frame(header_frame, bg=Palette.BG_SURFACE)
+        header_stats.pack(side="right", padx=28, pady=24)
 
-        # ------------------ Input Frame ------------------
-        input_frame = tk.Frame(self.main_frame, padx=22, pady=20, bg="#14181d", bd=0, highlightthickness=1, highlightbackground="#232a33")
-        input_frame.pack(fill="x", padx=24, pady=(0, 14))
+        stat_card = tk.Frame(
+            header_stats, bg=Palette.BG_SURFACE_2,
+            highlightthickness=1, highlightbackground=Palette.BORDER,
+            padx=18, pady=14,
+        )
+        stat_card.pack(anchor="e")
+        tk.Label(
+            stat_card, text="CURRENT WORKSPACE",
+            font=(self.UI_FONT, 8, "bold"),
+            fg=Palette.ACCENT, bg=Palette.BG_SURFACE_2,
+        ).pack(anchor="w")
+        self.header_algorithm_label = tk.Label(
+            stat_card, text="Algorithm: FCFS",
+            font=(self.UI_FONT, 10, "bold"),
+            fg=Palette.TEXT_PRIMARY, bg=Palette.BG_SURFACE_2,
+        )
+        self.header_algorithm_label.pack(anchor="w", pady=(10, 2))
+        self.header_process_count_label = tk.Label(
+            stat_card, text="Processes: 0",
+            font=(self.UI_FONT, 10),
+            fg=Palette.TEXT_MUTED, bg=Palette.BG_SURFACE_2,
+        )
+        self.header_process_count_label.pack(anchor="w")
 
-        tk.Label(input_frame, text="Add Process", font=("Segoe UI", 15, "bold"),
-                 fg="#f9fafb", bg="#14181d").grid(row=0, column=0, columnspan=10, sticky="w", pady=(0, 4))
-        tk.Label(input_frame, text="Enter process details manually or load a demo workload.",
-                 font=("Segoe UI", 10), fg="#7f8b99", bg="#14181d").grid(row=1, column=0, columnspan=10, sticky="w", pady=(0, 14))
+        # ------------------ Notebook ------------------
+        self.notebook = ttk.Notebook(self.main_frame, style="Scheduler.TNotebook")
+        self.notebook.pack(fill="both", expand=True, padx=28, pady=(0, 18))
 
-        tk.Label(input_frame, text="PID", font=("Segoe UI", 10, "bold"),
-                 fg="#cbd5e1", bg="#14181d").grid(row=2, column=0, sticky="w", pady=(0, 6))
-        tk.Label(input_frame, text="Arrival", font=("Segoe UI", 10, "bold"),
-                 fg="#cbd5e1", bg="#14181d").grid(row=2, column=2, sticky="w", pady=(0, 6))
-        tk.Label(input_frame, text="Burst", font=("Segoe UI", 10, "bold"),
-                 fg="#cbd5e1", bg="#14181d").grid(row=2, column=4, sticky="w", pady=(0, 6))
-        tk.Label(input_frame, text="Priority", font=("Segoe UI", 10, "bold"),
-                 fg="#cbd5e1", bg="#14181d").grid(row=2, column=6, sticky="w", pady=(0, 6))
+        self.processes_tab = tk.Frame(self.notebook, bg=Palette.BG_APP)
+        self.simulation_tab = tk.Frame(self.notebook, bg=Palette.BG_APP)
+        self.comparison_tab = tk.Frame(self.notebook, bg=Palette.BG_APP)
+
+        self.notebook.add(self.processes_tab, text="  Processes  ")
+        self.notebook.add(self.simulation_tab, text="  Simulation  ")
+        self.notebook.add(self.comparison_tab, text="  Comparison  ")
+
+        self.processes_page = self._make_scrollable_tab(self.processes_tab)
+        self.simulation_page = self._make_scrollable_tab(self.simulation_tab)
+        self.comparison_page = self._make_scrollable_tab(self.comparison_tab)
+
+        self._add_tab_banner(
+            self.processes_page,
+            "Process Workspace",
+            "Create, edit, and organize the workload before running any scheduling strategy."
+        )
+        self._add_tab_banner(
+            self.simulation_page,
+            "Simulation Studio",
+            "Run one algorithm at a time, inspect metrics, and review the Gantt execution flow."
+        )
+        self._add_tab_banner(
+            self.comparison_page,
+            "Comparison Board",
+            "Compare every available algorithm on the same process set and spot the best performer."
+        )
+
+    def _build_processes_tab(self):
+        # ------------------ Input Card ------------------
+        input_card = self._card(self.processes_page)
+        input_card.pack(fill="x", pady=(0, 16))
+
+        self._section_title(
+            input_card, "Add Process",
+            "Enter process details manually or load a demo workload."
+        )
+
+        input_frame = tk.Frame(input_card, bg=Palette.BG_SURFACE)
+        input_frame.pack(fill="x", padx=22, pady=(0, 22))
+
+        # Column labels above each entry
+        for col_index, header in (
+            (1, "Process ID"), (3, "Arrival"), (5, "Burst"), (7, "Priority"),
+        ):
+            tk.Label(
+                input_frame, text=header,
+                font=(self.UI_FONT, 9, "bold"),
+                fg=Palette.TEXT_SECONDARY, bg=Palette.BG_SURFACE,
+            ).grid(row=0, column=col_index, sticky="w", padx=(0, 14), pady=(0, 6))
 
         self.pid_entry = tk.Entry(input_frame, width=12, **self.entry_style)
         self.at_entry = tk.Entry(input_frame, width=12, **self.entry_style)
         self.bt_entry = tk.Entry(input_frame, width=12, **self.entry_style)
         self.pr_entry = tk.Entry(input_frame, width=12, **self.entry_style)
 
-        self.pid_entry.grid(row=2, column=1, padx=(0, 12), pady=(0, 6), sticky="ew")
-        self.at_entry.grid(row=2, column=3, padx=(0, 12), pady=(0, 6), sticky="ew")
-        self.bt_entry.grid(row=2, column=5, padx=(0, 12), pady=(0, 6), sticky="ew")
-        self.pr_entry.grid(row=2, column=7, padx=(0, 12), pady=(0, 6), sticky="ew")
+        self.pid_entry.grid(row=1, column=1, padx=(0, 14), pady=(0, 6), sticky="ew", ipady=4)
+        self.at_entry.grid(row=1, column=3, padx=(0, 14), pady=(0, 6), sticky="ew", ipady=4)
+        self.bt_entry.grid(row=1, column=5, padx=(0, 14), pady=(0, 6), sticky="ew", ipady=4)
+        self.pr_entry.grid(row=1, column=7, padx=(0, 14), pady=(0, 6), sticky="ew", ipady=4)
 
         self.add_update_button = tk.Button(
-            input_frame,
-            text="Add Process",
-            command=self.add_or_update_process,
-            **self.button_style
-        )
-        self.add_update_button.grid(row=2, column=8, padx=(6, 8), sticky="ew")
+            input_frame, text="Add Process",
+            command=self.add_or_update_process, **self.button_style)
+        self.add_update_button.grid(row=1, column=8, padx=(8, 8), sticky="ew")
 
         self.cancel_edit_button = tk.Button(
-            input_frame,
-            text="Cancel",
-            command=self.cancel_edit,
-            **self.secondary_button_style
-        )
-        self.cancel_edit_button.grid(row=2, column=9, sticky="ew")
+            input_frame, text="Cancel",
+            command=self.cancel_edit, **self.secondary_button_style)
+        self.cancel_edit_button.grid(row=1, column=9, sticky="ew")
         self.cancel_edit_button.grid_remove()
 
         self.demo_button = tk.Button(
-            input_frame,
-            text="Load Demo Case",
-            command=self.load_demo_case,
-            **self.secondary_button_style
-        )
-        self.demo_button.grid(row=3, column=8, columnspan=2, pady=(12, 0), sticky="ew")
+            input_frame, text="Load Demo Case",
+            command=self.load_demo_case, **self.secondary_button_style)
+        self.demo_button.grid(row=2, column=8, columnspan=2, pady=(14, 0), sticky="ew")
 
         for entry in (self.pid_entry, self.at_entry, self.bt_entry, self.pr_entry):
             entry.bind("<Return>", self.on_add_process_enter)
@@ -161,42 +345,46 @@ class SchedulerApp:
         for column in (1, 3, 5, 7, 8, 9):
             input_frame.grid_columnconfigure(column, weight=1)
 
-        # ------------------ Table ------------------
-        table_outer = tk.Frame(self.main_frame, bg="#14181d", highlightthickness=1, highlightbackground="#232a33")
-        table_outer.pack(fill="both", expand=True, padx=24, pady=(0, 14))
+        # ------------------ Queued Processes Card ------------------
+        table_outer = self._card(self.processes_page)
+        table_outer.pack(fill="both", expand=True, pady=(0, 16))
 
-        table_header = tk.Frame(table_outer, bg="#14181d")
-        table_header.pack(fill="x", padx=20, pady=(18, 10))
+        table_header = tk.Frame(table_outer, bg=Palette.BG_SURFACE)
+        table_header.pack(fill="x", padx=22, pady=(20, 14))
 
-        tk.Label(table_header, text="Queued Processes", font=("Segoe UI", 15, "bold"),
-                 fg="#f9fafb", bg="#14181d").pack(side="left")
+        title_col = tk.Frame(table_header, bg=Palette.BG_SURFACE)
+        title_col.pack(side="left")
+        tk.Label(
+            title_col, text="Queued Processes",
+            font=(self.DISPLAY_FONT, 14, "bold"),
+            fg=Palette.TEXT_PRIMARY, bg=Palette.BG_SURFACE,
+        ).pack(anchor="w")
+        tk.Label(
+            title_col, text="Click a row to edit, then save your changes.",
+            font=(self.UI_FONT, 9),
+            fg=Palette.TEXT_MUTED, bg=Palette.BG_SURFACE,
+        ).pack(anchor="w", pady=(2, 0))
 
-        table_actions = tk.Frame(table_header, bg="#14181d")
+        table_actions = tk.Frame(table_header, bg=Palette.BG_SURFACE)
         table_actions.pack(side="right")
 
         tk.Button(
-            table_actions,
-            text="Delete Selected",
+            table_actions, text="Delete Selected",
             command=self.delete_selected_process,
-            **self.secondary_button_style
-        ).pack(side="left", padx=(0, 8))
+            **self.secondary_button_style,
+        ).pack(side="left", padx=(0, 10))
         tk.Button(
-            table_actions,
-            text="Clear All",
+            table_actions, text="Clear All",
             command=self.clear_all_processes,
-            **self.secondary_button_style
+            **self.danger_button_style,
         ).pack(side="left")
 
-        table_frame = tk.Frame(table_outer, bg="#14181d")
-        table_frame.pack(fill="both", expand=True, padx=20, pady=(0, 18))
+        table_frame = tk.Frame(table_outer, bg=Palette.BG_SURFACE)
+        table_frame.pack(fill="both", expand=True, padx=22, pady=(0, 22))
 
         self.tree = ttk.Treeview(
-            table_frame,
-            columns=("PID", "AT", "BT", "PR"),
-            show="headings",
-            style="Scheduler.Treeview"
-        )
-
+            table_frame, columns=("PID", "AT", "BT", "PR"),
+            show="headings", style="Scheduler.Treeview")
         for col in ("PID", "AT", "BT", "PR"):
             self.tree.heading(col, text=col)
             self.tree.column(col, width=150, anchor="center")
@@ -206,50 +394,67 @@ class SchedulerApp:
         self.tree.pack(side="left", fill="both", expand=True)
         table_scroll.pack(side="right", fill="y")
         self.tree.bind("<<TreeviewSelect>>", self.on_tree_select)
+        self._apply_tree_row_styles(self.tree)
 
-        # ------------------ Algorithm Frame ------------------
-        algo_frame = tk.Frame(self.main_frame, padx=22, pady=20, bg="#14181d", bd=0, highlightthickness=1, highlightbackground="#232a33")
-        algo_frame.pack(fill="x", padx=24, pady=(0, 14))
+    def _build_simulation_tab(self):
+        # ------------------ Algorithm Controls ------------------
+        algo_card = self._card(self.simulation_page)
+        algo_card.pack(fill="x", pady=(0, 16))
+
+        self._section_title(
+            algo_card, "Simulation Controls",
+            "Pick an algorithm, tune the controls, then simulate or compare all methods."
+        )
+
+        algo_frame = tk.Frame(algo_card, bg=Palette.BG_SURFACE)
+        algo_frame.pack(fill="x", padx=22, pady=(0, 22))
 
         self.algo_var = tk.StringVar()
 
-        tk.Label(algo_frame, text="Simulation Controls", font=("Segoe UI", 15, "bold"),
-                 fg="#f9fafb", bg="#14181d").grid(row=0, column=0, columnspan=5, sticky="w", pady=(0, 4))
-        tk.Label(algo_frame, text="Pick an algorithm, tune the controls, then simulate or compare all methods.",
-                 font=("Segoe UI", 10), fg="#7f8b99", bg="#14181d").grid(row=1, column=0, columnspan=5, sticky="w", pady=(0, 14))
-
         self.algo_dropdown = ttk.Combobox(
-            algo_frame,
-            textvariable=self.algo_var,
-            values=self.ALGORITHMS,
-            state="readonly",
-            width=30,
-            style="Scheduler.TCombobox"
-        )
-        self.algo_dropdown.grid(row=2, column=0, padx=(0, 16), sticky="ew")
+            algo_frame, textvariable=self.algo_var, values=self.ALGORITHMS,
+            state="readonly", width=30, style="Scheduler.TCombobox")
+        self.algo_dropdown.grid(row=0, column=0, padx=(0, 16), sticky="ew")
         self.algo_dropdown.current(0)
 
-        tk.Label(algo_frame, text="Time Quantum", font=("Segoe UI", 10, "bold"),
-                 fg="#cbd5e1", bg="#14181d").grid(row=2, column=1, sticky="w", padx=(0, 10))
+        tk.Label(
+            algo_frame, text="Time Quantum",
+            font=(self.UI_FONT, 9, "bold"),
+            fg=Palette.TEXT_SECONDARY, bg=Palette.BG_SURFACE,
+        ).grid(row=0, column=1, sticky="w", padx=(0, 10))
         self.quantum_entry = tk.Entry(algo_frame, width=10, **self.entry_style)
-        self.quantum_entry.grid(row=2, column=2, sticky="ew")
+        self.quantum_entry.grid(row=0, column=2, sticky="ew", ipady=4)
         self.quantum_entry.insert(0, "3")
 
-        tk.Button(algo_frame, text="Simulate",
-                  command=self.simulate, **self.button_style).grid(row=2, column=3, padx=(16, 0), sticky="ew")
-        tk.Button(algo_frame, text="Compare All",
-                  command=self.compare_algorithms, **self.secondary_button_style).grid(row=2, column=4, padx=(12, 0), sticky="ew")
+        tk.Button(
+            algo_frame, text="Simulate",
+            command=self.simulate, **self.button_style,
+        ).grid(row=0, column=3, padx=(16, 0), sticky="ew")
+        tk.Button(
+            algo_frame, text="Compare All",
+            command=self.compare_algorithms, **self.secondary_button_style,
+        ).grid(row=0, column=4, padx=(12, 0), sticky="ew")
 
-        self.algorithm_help_label = tk.Label(
-            algo_frame,
-            text=self.ALGORITHM_HELP[self.get_selected_algorithm()],
-            font=("Segoe UI", 10),
-            fg="#94a3b8",
-            bg="#14181d",
-            wraplength=900,
-            justify="left",
+        # Help label — styled like an info chip
+        help_chip = tk.Frame(
+            algo_card, bg=Palette.BG_INPUT,
+            highlightthickness=1, highlightbackground=Palette.BORDER_SOFT,
         )
-        self.algorithm_help_label.grid(row=3, column=0, columnspan=5, sticky="w", pady=(14, 0))
+        help_chip.pack(fill="x", padx=22, pady=(0, 22))
+        help_inner = tk.Frame(help_chip, bg=Palette.BG_INPUT)
+        help_inner.pack(fill="x", padx=14, pady=12)
+        tk.Label(
+            help_inner, text="ⓘ",
+            font=(self.UI_FONT, 11, "bold"),
+            fg=Palette.PRIMARY, bg=Palette.BG_INPUT,
+        ).pack(side="left", padx=(0, 10), anchor="n")
+        self.algorithm_help_label = tk.Label(
+            help_inner, text=self.ALGORITHM_HELP[self.get_selected_algorithm()],
+            font=(self.UI_FONT, 10),
+            fg=Palette.TEXT_SECONDARY, bg=Palette.BG_INPUT,
+            wraplength=900, justify="left",
+        )
+        self.algorithm_help_label.pack(side="left", fill="x", expand=True)
 
         algo_frame.grid_columnconfigure(0, weight=3)
         algo_frame.grid_columnconfigure(2, weight=1)
@@ -258,262 +463,505 @@ class SchedulerApp:
         self.algo_dropdown.bind("<<ComboboxSelected>>", self.on_algorithm_change)
         self.update_quantum_state()
 
-        summary_frame = tk.Frame(self.main_frame, bg="#0b0d10")
-        summary_frame.pack(fill="x", padx=24, pady=(0, 14))
+        # ------------------ Summary cards ------------------
+        summary_frame = tk.Frame(self.simulation_page, bg=Palette.BG_APP)
+        summary_frame.pack(fill="x", pady=(0, 16))
 
         self.summary_cards = {}
-        for card_title in ("Processes", "Algorithm", "Avg WT", "Avg TAT", "Idle Time", "CPU Util"):
-            card = tk.Frame(summary_frame, bg="#14181d", highlightthickness=1, highlightbackground="#232a33", padx=20, pady=16)
-            card.pack(side="left", fill="x", expand=True, padx=(0, 10))
-            tk.Label(card, text=card_title, font=("Segoe UI", 10, "bold"),
-                     fg="#7f8b99", bg="#14181d").pack(anchor="w")
-            value_label = tk.Label(card, text="-", font=("Segoe UI", 18, "bold"),
-                                   fg="#f9fafb", bg="#14181d")
-            value_label.pack(anchor="w", pady=(6, 0))
-            self.summary_cards[card_title] = value_label
+        card_defs = [
+            ("Processes", Palette.PRIMARY),
+            ("Algorithm", Palette.PRIMARY),
+            ("Avg WT", Palette.ACCENT),
+            ("Avg TAT", Palette.ACCENT),
+            ("Idle Time", Palette.TEXT_SECONDARY),
+            ("CPU Util", Palette.SUCCESS),
+        ]
+        for card_title, accent_color in card_defs:
+            self.summary_cards[card_title] = self._make_stat_card(
+                summary_frame, card_title, accent_color)
         summary_frame.winfo_children()[-1].pack_configure(padx=(0, 0))
-        self.update_summary_cards()
 
         # ------------------ Results ------------------
-        output_frame = tk.Frame(self.main_frame, bg="#14181d", highlightthickness=1, highlightbackground="#232a33")
-        output_frame.pack(fill="both", expand=True, padx=24, pady=(0, 14))
+        output_card = self._card(self.simulation_page)
+        output_card.pack(fill="both", expand=True, pady=(0, 16))
 
-        tk.Label(output_frame, text="Results", font=("Segoe UI", 15, "bold"),
-                 fg="#f9fafb", bg="#14181d").pack(anchor="w", padx=20, pady=(18, 10))
+        self._section_title(output_card, "Results")
 
-        results_table_frame = tk.Frame(output_frame, bg="#14181d")
-        results_table_frame.pack(fill="both", expand=True, padx=20, pady=(0, 8))
+        results_table_frame = tk.Frame(output_card, bg=Palette.BG_SURFACE)
+        results_table_frame.pack(fill="both", expand=True, padx=22, pady=(0, 12))
 
         self.results_tree = ttk.Treeview(
-            results_table_frame,
-            columns=("PID", "CT", "TAT", "WT", "RT"),
-            show="headings",
-            style="Scheduler.Treeview",
-            height=6
-        )
+            results_table_frame, columns=("PID", "CT", "TAT", "WT", "RT"),
+            show="headings", style="Scheduler.Treeview", height=6)
         for col in ("PID", "CT", "TAT", "WT", "RT"):
             self.results_tree.heading(col, text=col)
             self.results_tree.column(col, anchor="center", width=108)
 
-        results_scroll = ttk.Scrollbar(results_table_frame, orient="vertical", command=self.results_tree.yview)
+        results_scroll = ttk.Scrollbar(
+            results_table_frame, orient="vertical", command=self.results_tree.yview)
         self.results_tree.configure(yscrollcommand=results_scroll.set)
         self.results_tree.pack(side="left", fill="both", expand=True)
         results_scroll.pack(side="right", fill="y")
+        self._apply_tree_row_styles(self.results_tree)
 
+        # Metric summary lines
+        metric_strip = tk.Frame(output_card, bg=Palette.BG_SURFACE)
+        metric_strip.pack(fill="x", padx=22, pady=(0, 8))
         self.averages_label = tk.Label(
-            output_frame,
-            text="Average Waiting Time: -    Average Turnaround Time: -",
-            font=("Segoe UI", 10, "bold"),
-            fg="#cbd5e1",
-            bg="#14181d",
+            metric_strip,
+            text="Average Waiting Time: —    Average Turnaround Time: —",
+            font=(self.UI_FONT, 10, "bold"),
+            fg=Palette.TEXT_PRIMARY, bg=Palette.BG_SURFACE,
         )
-        self.averages_label.pack(anchor="w", padx=20, pady=(0, 18))
-
+        self.averages_label.pack(anchor="w")
         self.performance_label = tk.Label(
-            output_frame,
-            text="Response Time Avg: -    CPU Idle Time: -    CPU Utilization: -",
-            font=("Segoe UI", 10, "bold"),
-            fg="#94a3b8",
-            bg="#14181d",
+            metric_strip,
+            text="Response Time Avg: —    CPU Idle Time: —    CPU Utilization: —",
+            font=(self.UI_FONT, 10),
+            fg=Palette.TEXT_MUTED, bg=Palette.BG_SURFACE,
         )
-        self.performance_label.pack(anchor="w", padx=20, pady=(0, 18))
+        self.performance_label.pack(anchor="w", pady=(4, 0))
 
-        export_frame = tk.Frame(output_frame, bg="#14181d")
-        export_frame.pack(fill="x", padx=20, pady=(0, 18))
+        export_frame = tk.Frame(output_card, bg=Palette.BG_SURFACE)
+        export_frame.pack(fill="x", padx=22, pady=(12, 22))
         tk.Button(
-            export_frame,
-            text="Export Current Results",
+            export_frame, text="Export Current Results",
             command=self.export_current_results,
-            **self.secondary_button_style
+            **self.secondary_button_style,
         ).pack(side="left")
 
-        # ------------------ Math Solution ------------------
-        solution_frame = tk.Frame(self.main_frame, bg="#14181d", highlightthickness=1, highlightbackground="#232a33")
-        solution_frame.pack(fill="both", expand=True, padx=24, pady=(0, 14))
+        # ------------------ Working (solution trace) ------------------
+        solution_card = self._card(self.simulation_page)
+        solution_card.pack(fill="both", expand=True, pady=(0, 16))
+        self._section_title(solution_card, "Working")
+        self.solution_text = tk.Text(solution_card, height=8, **self.text_style)
+        self.solution_text.pack(fill="both", expand=True, padx=22, pady=(0, 22))
 
-        tk.Label(solution_frame, text="Working", font=("Segoe UI", 15, "bold"),
-                 fg="#f9fafb", bg="#14181d").pack(anchor="w", padx=20, pady=(18, 10))
-        self.solution_text = tk.Text(solution_frame, height=8, **self.text_style)
-        self.solution_text.pack(fill="both", expand=True, padx=20, pady=(0, 18))
+        # ------------------ Gantt Chart ------------------
+        gantt_card = self._card(self.simulation_page)
+        gantt_card.pack(fill="both", expand=True, pady=(0, 16))
+        self._section_title(
+            gantt_card, "Gantt Chart",
+            "Execution timeline of the currently selected scheduling strategy."
+        )
 
-        comparison_frame = tk.Frame(self.main_frame, bg="#14181d", highlightthickness=1, highlightbackground="#232a33")
-        comparison_frame.pack(fill="both", expand=True, padx=24, pady=(0, 14))
+        self.gantt_canvas = tk.Canvas(
+            gantt_card, height=240, bg=Palette.BG_INPUT,
+            highlightthickness=1, highlightbackground=Palette.BORDER,
+        )
+        self.gantt_canvas.pack(fill="both", expand=True, padx=22, pady=(0, 22))
 
-        tk.Label(comparison_frame, text="Algorithm Comparison", font=("Segoe UI", 15, "bold"),
-                 fg="#f9fafb", bg="#14181d").pack(anchor="w", padx=20, pady=(18, 10))
+        # ------------------ Reset button ------------------
+        footer_actions = tk.Frame(self.simulation_page, bg=Palette.BG_APP)
+        footer_actions.pack(fill="x", pady=(0, 10))
+        tk.Button(
+            footer_actions, text="Reset Simulation",
+            command=self.reset_simulation,
+            **self.secondary_button_style,
+        ).pack(side="left")
 
-        comparison_table_frame = tk.Frame(comparison_frame, bg="#14181d")
-        comparison_table_frame.pack(fill="both", expand=True, padx=20, pady=(0, 18))
+    def _build_comparison_tab(self):
+        comparison_card = self._card(self.comparison_page)
+        comparison_card.pack(fill="both", expand=True)
+        self._section_title(comparison_card, "Algorithm Comparison")
+
+        comparison_table_frame = tk.Frame(comparison_card, bg=Palette.BG_SURFACE)
+        comparison_table_frame.pack(fill="both", expand=True, padx=22, pady=(0, 22))
 
         self.comparison_tree = ttk.Treeview(
-            comparison_table_frame,
-            columns=("Algorithm", "Avg WT", "Avg TAT"),
-            show="headings",
-            style="Scheduler.Treeview",
-            height=7
-        )
+            comparison_table_frame, columns=("Algorithm", "Avg WT", "Avg TAT"),
+            show="headings", style="Scheduler.Treeview", height=7)
         for col, width in (("Algorithm", 260), ("Avg WT", 120), ("Avg TAT", 120)):
             self.comparison_tree.heading(col, text=col)
             self.comparison_tree.column(col, anchor="center", width=width)
 
-        comparison_scroll = ttk.Scrollbar(comparison_table_frame, orient="vertical", command=self.comparison_tree.yview)
+        comparison_scroll = ttk.Scrollbar(
+            comparison_table_frame, orient="vertical", command=self.comparison_tree.yview)
         self.comparison_tree.configure(yscrollcommand=comparison_scroll.set)
         self.comparison_tree.pack(side="left", fill="both", expand=True)
         comparison_scroll.pack(side="right", fill="y")
-        self.comparison_tree.tag_configure("selected_algorithm", background="#1d4ed8", foreground="#eff6ff")
+        self.comparison_tree.tag_configure(
+            "selected_algorithm",
+            background=Palette.ROW_SELECTED, foreground=Palette.ROW_SELECTED_FG)
+        self._apply_tree_row_styles(self.comparison_tree)
 
-        comparison_export_frame = tk.Frame(comparison_frame, bg="#14181d")
-        comparison_export_frame.pack(fill="x", padx=20, pady=(0, 12))
+        comparison_export_frame = tk.Frame(comparison_card, bg=Palette.BG_SURFACE)
+        comparison_export_frame.pack(fill="x", padx=22, pady=(0, 16))
         tk.Button(
-            comparison_export_frame,
-            text="Export Comparison",
+            comparison_export_frame, text="Export Comparison",
             command=self.export_comparison_results,
-            **self.secondary_button_style
+            **self.secondary_button_style,
         ).pack(side="left")
 
+        # "Best algorithm" highlighted banner
+        best_banner = tk.Frame(
+            comparison_card, bg=Palette.BG_SURFACE_2,
+            highlightthickness=1, highlightbackground=Palette.BORDER,
+        )
+        best_banner.pack(fill="x", padx=22, pady=(0, 22))
+
+        best_accent = tk.Frame(best_banner, bg=Palette.SUCCESS, width=4)
+        best_accent.pack(side="left", fill="y")
+
+        best_inner = tk.Frame(best_banner, bg=Palette.BG_SURFACE_2)
+        best_inner.pack(side="left", fill="both", expand=True, padx=16, pady=12)
+        tk.Label(
+            best_inner, text="★ BEST PERFORMER",
+            font=(self.UI_FONT, 8, "bold"),
+            fg=Palette.SUCCESS, bg=Palette.BG_SURFACE_2,
+        ).pack(anchor="w")
         self.best_algorithm_label = tk.Label(
-            comparison_frame,
-            text="Best Algorithm: -",
-            font=("Segoe UI", 10, "bold"),
-            fg="#cbd5e1",
-            bg="#14181d",
+            best_inner, text="Run comparison to see results",
+            font=(self.UI_FONT, 11, "bold"),
+            fg=Palette.TEXT_PRIMARY, bg=Palette.BG_SURFACE_2,
         )
-        self.best_algorithm_label.pack(anchor="w", padx=20, pady=(0, 18))
+        self.best_algorithm_label.pack(anchor="w", pady=(4, 0))
 
-        # ------------------ Gantt Chart ------------------
-        gantt_frame = tk.Frame(self.main_frame, bg="#14181d", highlightthickness=1, highlightbackground="#232a33")
-        gantt_frame.pack(fill="both", expand=True, padx=24, pady=(0, 24))
-
-        tk.Label(gantt_frame, text="Gantt Chart", font=("Segoe UI", 15, "bold"),
-                 fg="#f9fafb", bg="#14181d").pack(anchor="w", padx=20, pady=(18, 6))
-        tk.Label(gantt_frame, text="Execution timeline of the currently selected scheduling strategy.",
-                 font=("Segoe UI", 10), fg="#7f8b99", bg="#14181d").pack(anchor="w", padx=20, pady=(0, 12))
-
-        self.gantt_canvas = tk.Canvas(
-            gantt_frame,
-            height=240,
-            bg="#101419",
-            highlightthickness=1,
-            highlightbackground="#29323c"
-        )
-        self.gantt_canvas.pack(fill="both", expand=True, padx=20, pady=(0, 18))
-        self.show_gantt_chart([])
-
-        footer_actions = tk.Frame(self.main_frame, bg="#0b0d10")
-        footer_actions.pack(fill="x", padx=24, pady=(0, 10))
-        tk.Button(
-            footer_actions,
-            text="Reset Simulation",
-            command=self.reset_simulation,
-            **self.secondary_button_style
-        ).pack(side="left")
-
-        footer_frame = tk.Frame(self.main_frame, bg="#0b0d10")
-        footer_frame.pack(fill="x", padx=24, pady=(0, 24))
+    def _build_footer(self):
+        footer_frame = tk.Frame(self.main_frame, bg=Palette.BG_APP)
+        footer_frame.pack(fill="x", padx=28, pady=(0, 24))
         tk.Label(
             footer_frame,
-            text="Operating Systems Mini Project  |  CPU Scheduling Simulator  |  Built with Python and Tkinter",
-            font=("Segoe UI", 9),
-            fg="#667281",
-            bg="#0b0d10",
+            text="Operating Systems Mini Project  ·  CPU Scheduling Simulator  ·  Built with Python and Tkinter",
+            font=(self.UI_FONT, 9),
+            fg=Palette.TEXT_SUBTLE, bg=Palette.BG_APP,
         ).pack(anchor="center")
+        tk.Label(
+            footer_frame,
+            text="Shortcuts: Ctrl+N new process  ·  Ctrl+R / F5 simulate  ·  Ctrl+Shift+C compare  ·  Ctrl+E export  ·  Esc cancel edit",
+            font=(self.UI_FONT, 8),
+            fg=Palette.TEXT_SUBTLE, bg=Palette.BG_APP,
+        ).pack(anchor="center", pady=(4, 0))
 
+    # ==================== ttk styling + widget style dicts ====================
     def _setup_styles(self):
         style = ttk.Style()
         style.theme_use("clam")
 
+        # Notebook
+        style.configure(
+            "Scheduler.TNotebook",
+            background=Palette.BG_APP, borderwidth=0, tabmargins=[0, 0, 0, 10])
+        style.configure(
+            "Scheduler.TNotebook.Tab",
+            background=Palette.BG_SURFACE,
+            foreground=Palette.TEXT_MUTED,
+            padding=(22, 12), borderwidth=0,
+            font=(self.UI_FONT, 10, "bold"),
+        )
+        style.map(
+            "Scheduler.TNotebook.Tab",
+            background=[("selected", Palette.PRIMARY), ("active", Palette.BG_SURFACE_2)],
+            foreground=[("selected", Palette.PRIMARY_TEXT), ("active", Palette.TEXT_PRIMARY)],
+        )
+
+        # Scrollbars
         style.configure(
             "TScrollbar",
-            troughcolor="#14181d",
-            background="#3b4450",
-            bordercolor="#14181d",
-            arrowcolor="#e5e7eb",
+            troughcolor=Palette.BG_SURFACE,
+            background=Palette.BORDER,
+            bordercolor=Palette.BG_SURFACE,
+            arrowcolor=Palette.TEXT_MUTED,
         )
+        style.map(
+            "TScrollbar",
+            background=[("active", Palette.TEXT_SUBTLE)],
+        )
+
+        # Treeview
         style.configure(
             "Scheduler.Treeview",
-            background="#101419",
-            foreground="#e5e7eb",
-            fieldbackground="#101419",
-            borderwidth=0,
-            rowheight=38,
-            font=("Segoe UI", 10),
+            background=Palette.BG_INPUT,
+            foreground=Palette.TEXT_PRIMARY,
+            fieldbackground=Palette.BG_INPUT,
+            borderwidth=0, rowheight=38,
+            font=(self.UI_FONT, 10),
         )
         style.map(
             "Scheduler.Treeview",
-            background=[("selected", "#243244")],
-            foreground=[("selected", "#f9fafb")],
+            background=[("selected", Palette.ROW_SELECTED)],
+            foreground=[("selected", Palette.ROW_SELECTED_FG)],
         )
+        style.configure("Scheduler.Treeview", bordercolor=Palette.BORDER)
         style.configure(
             "Scheduler.Treeview.Heading",
-            background="#182028",
-            foreground="#f3f4f6",
-            borderwidth=0,
-            relief="flat",
-            font=("Segoe UI", 10, "bold"),
+            background=Palette.BG_SURFACE_2,
+            foreground=Palette.TEXT_SECONDARY,
+            borderwidth=0, relief="flat",
+            padding=(12, 10),
+            font=(self.UI_FONT, 9, "bold"),
         )
-        style.map("Scheduler.Treeview.Heading", background=[("active", "#212a34")])
+        style.map(
+            "Scheduler.Treeview.Heading",
+            background=[("active", Palette.BORDER)],
+        )
+
+        # Combobox
         style.configure(
             "Scheduler.TCombobox",
-            fieldbackground="#0f1419",
-            background="#0f1419",
-            foreground="#f3f4f6",
-            arrowcolor="#f3f4f6",
-            bordercolor="#2a3440",
-            lightcolor="#2a3440",
-            darkcolor="#2a3440",
+            fieldbackground=Palette.BG_INPUT,
+            background=Palette.BG_INPUT,
+            foreground=Palette.TEXT_PRIMARY,
+            arrowcolor=Palette.PRIMARY,
+            bordercolor=Palette.BORDER,
+            lightcolor=Palette.BORDER,
+            darkcolor=Palette.BORDER,
             padding=10,
         )
+        style.map(
+            "Scheduler.TCombobox",
+            fieldbackground=[("readonly", Palette.BG_INPUT)],
+            background=[("readonly", Palette.BG_INPUT)],
+            foreground=[("readonly", Palette.TEXT_PRIMARY)],
+            selectforeground=[("readonly", Palette.TEXT_PRIMARY)],
+            selectbackground=[("readonly", Palette.BG_INPUT)],
+            bordercolor=[("focus", Palette.BORDER_FOCUS)],
+            lightcolor=[("focus", Palette.BORDER_FOCUS)],
+            darkcolor=[("focus", Palette.BORDER_FOCUS)],
+        )
 
+        # Entry style dict
         self.entry_style = {
-            "font": ("Segoe UI", 10),
-            "bg": "#0f1419",
-            "fg": "#f3f4f6",
-            "insertbackground": "#f3f4f6",
-            "relief": "flat",
-            "bd": 0,
+            "font": (self.UI_FONT, 10),
+            "bg": Palette.BG_INPUT, "fg": Palette.TEXT_PRIMARY,
+            "insertbackground": Palette.PRIMARY,
+            "relief": "flat", "bd": 0,
             "highlightthickness": 1,
-            "highlightbackground": "#2a3440",
-            "highlightcolor": "#38bdf8",
+            "highlightbackground": Palette.BORDER,
+            "highlightcolor": Palette.BORDER_FOCUS,
         }
+        # Primary button (indigo)
         self.button_style = {
-            "font": ("Segoe UI", 10, "bold"),
-            "bg": "#2563eb",
-            "fg": "#eff6ff",
-            "activebackground": "#1d4ed8",
-            "activeforeground": "#ffffff",
-            "relief": "flat",
-            "bd": 0,
-            "cursor": "hand2",
-            "padx": 18,
-            "pady": 11,
+            "font": (self.UI_FONT, 10, "bold"),
+            "bg": Palette.PRIMARY, "fg": Palette.PRIMARY_TEXT,
+            "activebackground": Palette.PRIMARY_HOVER,
+            "activeforeground": Palette.PRIMARY_TEXT,
+            "relief": "flat", "bd": 0, "cursor": "hand2",
+            "padx": 20, "pady": 11,
         }
+        # Secondary (ghost) button
         self.secondary_button_style = {
-            "font": ("Segoe UI", 10, "bold"),
-            "bg": "#1b222b",
-            "fg": "#dbe4ee",
-            "activebackground": "#26303b",
-            "activeforeground": "#ffffff",
-            "relief": "flat",
-            "bd": 0,
-            "cursor": "hand2",
-            "padx": 18,
-            "pady": 11,
+            "font": (self.UI_FONT, 10, "bold"),
+            "bg": Palette.GHOST_BG, "fg": Palette.GHOST_TEXT,
+            "activebackground": Palette.GHOST_BG_HOVER,
+            "activeforeground": Palette.TEXT_PRIMARY,
+            "relief": "flat", "bd": 0, "cursor": "hand2",
+            "padx": 20, "pady": 11,
+        }
+        # Danger button (for Clear All)
+        self.danger_button_style = {
+            "font": (self.UI_FONT, 10, "bold"),
+            "bg": Palette.GHOST_BG, "fg": Palette.DANGER,
+            "activebackground": "#3b1218", "activeforeground": "#fca5a5",
+            "relief": "flat", "bd": 0, "cursor": "hand2",
+            "padx": 20, "pady": 11,
         }
         self.text_style = {
-            "font": ("Consolas", 10),
-            "bg": "#101419",
-            "fg": "#e5e7eb",
-            "insertbackground": "#f3f4f6",
-            "relief": "flat",
-            "bd": 0,
-            "padx": 14,
-            "pady": 14,
+            "font": (self.MONO_FONT, 10),
+            "bg": Palette.BG_INPUT, "fg": Palette.TEXT_PRIMARY,
+            "insertbackground": Palette.PRIMARY,
+            "relief": "flat", "bd": 0,
+            "padx": 16, "pady": 14,
             "highlightthickness": 1,
-            "highlightbackground": "#29323c",
-            "highlightcolor": "#38bdf8",
+            "highlightbackground": Palette.BORDER,
+            "highlightcolor": Palette.BORDER_FOCUS,
         }
 
-    # ------------------ Add Process ------------------
+    def _add_tab_banner(self, parent, title, subtitle):
+        banner = tk.Frame(
+            parent, bg=Palette.BG_SURFACE,
+            highlightthickness=1, highlightbackground=Palette.BORDER,
+        )
+        banner.pack(fill="x", pady=(0, 16))
+        accent = tk.Frame(banner, bg=Palette.PRIMARY, width=4)
+        accent.pack(side="left", fill="y")
+        body = tk.Frame(banner, bg=Palette.BG_SURFACE)
+        body.pack(side="left", fill="both", expand=True, padx=20, pady=18)
+        tk.Label(
+            body, text=title,
+            font=(self.DISPLAY_FONT, 14, "bold"),
+            fg=Palette.TEXT_PRIMARY, bg=Palette.BG_SURFACE,
+        ).pack(anchor="w")
+        tk.Label(
+            body, text=subtitle,
+            font=(self.UI_FONT, 10),
+            fg=Palette.TEXT_MUTED, bg=Palette.BG_SURFACE,
+        ).pack(anchor="w", pady=(6, 0))
+
+    def _make_stat_card(self, parent, title, accent_color=Palette.PRIMARY):
+        """Build one summary card with a colored accent stripe."""
+        wrapper = tk.Frame(
+            parent, bg=Palette.BG_SURFACE,
+            highlightthickness=1, highlightbackground=Palette.BORDER,
+        )
+        wrapper.pack(side="left", fill="x", expand=True, padx=(0, 12))
+
+        # Thin colored top stripe
+        tk.Frame(wrapper, bg=accent_color, height=3).pack(fill="x")
+
+        inner = tk.Frame(wrapper, bg=Palette.BG_SURFACE)
+        inner.pack(fill="both", expand=True, padx=20, pady=16)
+
+        tk.Label(
+            inner, text=title.upper(),
+            font=(self.UI_FONT, 8, "bold"),
+            fg=Palette.TEXT_MUTED, bg=Palette.BG_SURFACE,
+        ).pack(anchor="w")
+        value_label = tk.Label(
+            inner, text="—",
+            font=(self.DISPLAY_FONT, 20, "bold"),
+            fg=Palette.TEXT_PRIMARY, bg=Palette.BG_SURFACE,
+        )
+        value_label.pack(anchor="w", pady=(8, 0))
+        return value_label
+
+    def _make_scrollable_tab(self, parent):
+        canvas = tk.Canvas(parent, bg=Palette.BG_APP, highlightthickness=0)
+        scrollbar = ttk.Scrollbar(parent, orient="vertical", command=canvas.yview)
+        content = tk.Frame(canvas, bg=Palette.BG_APP)
+
+        canvas.configure(yscrollcommand=scrollbar.set)
+        canvas.pack(side="left", fill="both", expand=True)
+        scrollbar.pack(side="right", fill="y")
+
+        window_id = canvas.create_window((0, 0), window=content, anchor="nw")
+
+        def resize_content(event):
+            canvas.itemconfigure(window_id, width=event.width)
+
+        def update_scrollregion(_event=None):
+            canvas.configure(scrollregion=canvas.bbox("all"))
+
+        def on_mousewheel(event):
+            if event.num == 4:
+                canvas.yview_scroll(-1, "units")
+            elif event.num == 5:
+                canvas.yview_scroll(1, "units")
+            elif event.delta:
+                step = -1 if event.delta > 0 else 1
+                canvas.yview_scroll(step, "units")
+
+        canvas.bind("<Configure>", resize_content)
+        content.bind("<Configure>", update_scrollregion)
+
+        for widget in (canvas, content):
+            widget.bind("<MouseWheel>", on_mousewheel)
+            widget.bind("<Button-4>", on_mousewheel)
+            widget.bind("<Button-5>", on_mousewheel)
+
+        return content
+
+    def _next_row_tag(self, tree):
+        return "evenrow" if len(tree.get_children()) % 2 == 0 else "oddrow"
+
+    def _apply_tree_row_styles(self, tree):
+        tree.tag_configure("evenrow", background=Palette.ROW_EVEN, foreground=Palette.TEXT_PRIMARY)
+        tree.tag_configure("oddrow", background=Palette.ROW_ODD, foreground=Palette.TEXT_PRIMARY)
+
+    # ==================== Keyboard shortcuts ====================
+    def _bind_shortcuts(self):
+        """Global keyboard shortcuts. Bound via bind_all so they fire anywhere."""
+        # Ctrl+N — focus the PID field to start a new process
+        self.root.bind_all("<Control-n>", lambda e: self._focus_new_process())
+        self.root.bind_all("<Control-N>", lambda e: self._focus_new_process())
+        # Ctrl+R / F5 — simulate
+        self.root.bind_all("<Control-r>", lambda e: self.simulate())
+        self.root.bind_all("<Control-R>", lambda e: self.simulate())
+        self.root.bind_all("<F5>", lambda e: self.simulate())
+        # Ctrl+Shift+C — compare all
+        self.root.bind_all("<Control-Shift-C>", lambda e: self.compare_algorithms())
+        # Ctrl+E — export current results
+        self.root.bind_all("<Control-e>", lambda e: self.export_current_results())
+        self.root.bind_all("<Control-E>", lambda e: self.export_current_results())
+        # Escape — cancel edit mode (only if currently editing)
+        self.root.bind_all("<Escape>", lambda e: self.cancel_edit()
+                           if self.selected_process_index is not None else None)
+        # Delete — delete selected process (only when the processes tree has focus)
+        self.tree.bind("<Delete>", lambda e: self.delete_selected_process())
+
+        # Live validation: reset error outline as user types
+        for entry, field in (
+            (self.pid_entry, "pid"), (self.at_entry, "at"),
+            (self.bt_entry, "bt"), (self.pr_entry, "pr"),
+        ):
+            entry.bind("<KeyRelease>", lambda e, w=entry, f=field: self._live_validate(w, f))
+
+    def _focus_new_process(self):
+        """Jump to the PID field and reset any edit state."""
+        if self.selected_process_index is not None:
+            self.cancel_edit()
+        self.notebook.select(self.processes_tab)
+        self.pid_entry.focus_set()
+
+    # ==================== Live validation ====================
+    def _mark_invalid(self, entry):
+        """Draw a red focus ring on an entry."""
+        entry.configure(
+            highlightbackground=Palette.DANGER,
+            highlightcolor=Palette.DANGER,
+        )
+
+    def _mark_valid(self, entry):
+        """Restore the default focus ring."""
+        entry.configure(
+            highlightbackground=Palette.BORDER,
+            highlightcolor=Palette.BORDER_FOCUS,
+        )
+
+    def _live_validate(self, entry, field):
+        """Called on every keystroke. Numeric fields get color-coded feedback."""
+        value = entry.get().strip()
+        if field == "pid":
+            # PID is a free-form string — only flag if duplicate of another row
+            if not value:
+                self._mark_valid(entry)
+                return
+            is_duplicate = any(
+                p.pid == value and idx != self.selected_process_index
+                for idx, p in enumerate(self.processes)
+            )
+            if is_duplicate:
+                self._mark_invalid(entry)
+            else:
+                self._mark_valid(entry)
+            return
+
+        # Numeric fields (at / bt / pr) — empty is neutral, not an error yet
+        if not value:
+            self._mark_valid(entry)
+            return
+        try:
+            n = int(value)
+        except ValueError:
+            self._mark_invalid(entry)
+            return
+        if n < 0:
+            self._mark_invalid(entry)
+            return
+        if field == "bt" and n == 0:
+            self._mark_invalid(entry)
+            return
+        self._mark_valid(entry)
+
+    def _reset_all_entry_borders(self):
+        """Clear any red error rings — called after successful add/clear."""
+        for entry in (self.pid_entry, self.at_entry, self.bt_entry, self.pr_entry):
+            self._mark_valid(entry)
+
+    # ==================== Input validation ====================
+    @staticmethod
+    def _parse_int(value, field_name, allow_zero=True):
+        try:
+            n = int(value.strip())
+        except (ValueError, AttributeError):
+            raise ValueError(f"{field_name} must be an integer")
+        if n < 0:
+            raise ValueError(f"{field_name} must be non-negative")
+        if n == 0 and not allow_zero:
+            raise ValueError(f"{field_name} must be greater than zero")
+        return n
+
+    # ==================== Process CRUD ====================
     def get_selected_algorithm(self):
         return self.algo_var.get() or self.ALGORITHMS[0]
 
@@ -533,13 +981,17 @@ class SchedulerApp:
             self.cancel_edit_button.grid_remove()
 
     def add_or_update_process(self):
-        pid = self.pid_entry.get()
-        at = self.at_entry.get()
-        bt = self.bt_entry.get()
-        pr = self.pr_entry.get()
+        pid = self.pid_entry.get().strip()
+        if not pid:
+            messagebox.showerror("Invalid input", "PID is required")
+            return
 
-        if not (pid and at.isdigit() and bt.isdigit() and pr.isdigit()):
-            messagebox.showerror("Error", "Enter valid inputs")
+        try:
+            at = self._parse_int(self.at_entry.get(), "Arrival time")
+            bt = self._parse_int(self.bt_entry.get(), "Burst time", allow_zero=False)
+            pr = self._parse_int(self.pr_entry.get(), "Priority")
+        except ValueError as error:
+            messagebox.showerror("Invalid input", str(error))
             return
 
         duplicate_pid = any(
@@ -547,25 +999,26 @@ class SchedulerApp:
             for index, existing_process in enumerate(self.processes)
         )
         if duplicate_pid:
-            messagebox.showerror("Error", "PID must be unique")
+            messagebox.showerror("Invalid input", "PID must be unique")
             return
 
-        process = Process(pid, int(at), int(bt), int(pr))
+        process = Process(pid, at, bt, pr)
 
         if self.selected_process_index is None:
             self.processes.append(process)
-            self.tree.insert("", "end", values=(pid, at, bt, pr))
         else:
             self.processes[self.selected_process_index] = process
-            item_id = self.tree.get_children()[self.selected_process_index]
-            self.tree.item(item_id, values=(pid, at, bt, pr))
             self.cancel_edit()
             self.clear_process_form()
             self.update_summary_cards()
+            self.refresh_process_tree()
+            self._reset_all_entry_borders()
             return
 
         self.clear_process_form()
+        self.refresh_process_tree()
         self.update_summary_cards()
+        self._reset_all_entry_borders()
 
         if self.algo_var.get():
             self.simulate(show_errors=False)
@@ -590,6 +1043,7 @@ class SchedulerApp:
         self.at_entry.insert(0, process.arrival_time)
         self.bt_entry.insert(0, process.burst_time)
         self.pr_entry.insert(0, process.priority)
+        self._reset_all_entry_borders()
 
     def cancel_edit(self):
         self.selected_process_index = None
@@ -605,96 +1059,110 @@ class SchedulerApp:
 
         item_id = selection[0]
         item_index = self.tree.index(item_id)
-        self.tree.delete(item_id)
         del self.processes[item_index]
         self.cancel_edit()
+        self.refresh_process_tree()
         self.clear_simulation_outputs()
         self.update_summary_cards()
 
     def clear_all_processes(self):
+        # Only confirm if there's actually something to lose
+        if self.processes:
+            if not messagebox.askyesno(
+                "Clear all processes?",
+                "This will remove all queued processes and reset the simulation. Continue?",
+                icon="warning",
+            ):
+                return
         self.processes.clear()
-        self.tree.delete(*self.tree.get_children())
+        self.refresh_process_tree()
         self.cancel_edit()
         self.clear_simulation_outputs()
         self.update_summary_cards()
+        self._reset_all_entry_borders()
 
     def load_demo_case(self):
         self.clear_all_processes()
-
         for pid, at, bt, pr in self.DEMO_PROCESSES:
-            process = Process(pid, at, bt, pr)
-            self.processes.append(process)
-            self.tree.insert("", "end", values=(pid, at, bt, pr))
-
+            self.processes.append(Process(pid, at, bt, pr))
+        self.refresh_process_tree()
         self.update_summary_cards()
         self.simulate(show_errors=False)
         self.compare_algorithms()
 
-    def update_summary_cards(self, avg_wt="-", avg_tat="-", idle_time="-", cpu_util="-"):
+    # ==================== UI refresh helpers ====================
+    def update_summary_cards(self, avg_wt="—", avg_tat="—", idle_time="—", cpu_util="—"):
+        selected_algorithm = self.get_selected_algorithm()
         self.summary_cards["Processes"].configure(text=str(len(self.processes)))
-        self.summary_cards["Algorithm"].configure(text=self.get_selected_algorithm())
+        self.summary_cards["Algorithm"].configure(text=selected_algorithm)
         self.summary_cards["Avg WT"].configure(text=avg_wt)
         self.summary_cards["Avg TAT"].configure(text=avg_tat)
         self.summary_cards["Idle Time"].configure(text=idle_time)
         self.summary_cards["CPU Util"].configure(text=cpu_util)
+        self.header_algorithm_label.configure(text=f"Algorithm: {selected_algorithm}")
+        self.header_process_count_label.configure(text=f"Processes: {len(self.processes)}")
+
+    def refresh_process_tree(self):
+        self.tree.delete(*self.tree.get_children())
+        for process in self.processes:
+            self.tree.insert(
+                "", "end",
+                values=(process.pid, process.arrival_time,
+                        process.burst_time, process.priority),
+                tags=(self._next_row_tag(self.tree),))
 
     def clear_simulation_outputs(self):
         self.gantt_canvas.delete("all")
         self.show_gantt_chart([])
         self.solution_text.delete("1.0", tk.END)
         self.results_tree.delete(*self.results_tree.get_children())
-        self.averages_label.configure(text="Average Waiting Time: -    Average Turnaround Time: -")
-        self.performance_label.configure(text="Response Time Avg: -    CPU Idle Time: -    CPU Utilization: -")
-        self.comparison_tree.delete(*self.comparison_tree.get_children())
-        self.best_algorithm_label.configure(text="Best Algorithm: -")
+        self.averages_label.configure(
+            text="Average Waiting Time: —    Average Turnaround Time: —")
+        self.performance_label.configure(
+            text="Response Time Avg: —    CPU Idle Time: —    CPU Utilization: —")
         self.last_result_rows = []
-        self.last_comparison_rows = []
+        self.last_metrics = {}
         self.update_summary_cards()
 
     def update_quantum_state(self):
         is_round_robin = self.algo_var.get() == "Round Robin"
-        quantum_state = "normal" if is_round_robin else "disabled"
-        self.quantum_entry.configure(state=quantum_state)
+        self.quantum_entry.configure(state="normal" if is_round_robin else "disabled")
 
     def on_algorithm_change(self, event=None):
         self.update_quantum_state()
         self.update_summary_cards()
-        self.algorithm_help_label.configure(text=self.ALGORITHM_HELP.get(self.get_selected_algorithm(), ""))
+        self.algorithm_help_label.configure(
+            text=self.ALGORITHM_HELP.get(self.get_selected_algorithm(), ""))
         self.highlight_selected_algorithm()
 
         if not self.processes:
             return
-
-        if self.algo_var.get() == "Round Robin" and not self.quantum_entry.get().isdigit():
+        if self.algo_var.get() == "Round Robin" and not self.quantum_entry.get().strip().isdigit():
             return
 
         self.simulate(show_errors=False)
 
+    # ==================== Algorithm execution ====================
     def run_algorithm(self, algorithm_name, process_list):
-        if algorithm_name == "FCFS":
-            return fcfs_scheduling(process_list)
-        if algorithm_name == "SJF (Non Preemptive)":
-            return sjf_non_preemptive(process_list)
-        if algorithm_name == "LJF (Non Preemptive)":
-            return ljf_non_preemptive(process_list)
+        runner = self.ALGORITHM_DISPATCH.get(algorithm_name)
+        if runner is None:
+            raise ValueError(f"Unsupported algorithm: {algorithm_name}")
+
+        tq = None
         if algorithm_name == "Round Robin":
-            tq = self.quantum_entry.get()
-            if not tq.isdigit():
-                raise ValueError("Enter valid quantum")
-            return round_robin_scheduling(process_list, int(tq))
-        if algorithm_name == "Priority (Non Preemptive)":
-            return priority_non_preemptive(process_list)
-        if algorithm_name == "Priority (Preemptive)":
-            return priority_preemptive(process_list)
-        if algorithm_name == "SRTF (Preemptive SJF)":
-            return srtf_scheduling(process_list)
-        raise ValueError("Unsupported algorithm selected")
+            raw = self.quantum_entry.get().strip()
+            if not raw.isdigit() or int(raw) <= 0:
+                raise ValueError("Enter a valid time quantum (positive integer)")
+            tq = int(raw)
+
+        return runner(process_list, tq)
 
     def compare_algorithms(self):
         if not self.processes:
             messagebox.showerror("Error", "No processes added")
             return
 
+        self.notebook.select(self.comparison_tab)
         self.comparison_tree.delete(*self.comparison_tree.get_children())
         self.last_comparison_rows = []
 
@@ -706,22 +1174,32 @@ class SchedulerApp:
 
             try:
                 result, _ = self.run_algorithm(algorithm_name, process_list)
-            except ValueError:
-                return
+            except ValueError as error:
+                self.comparison_tree.insert(
+                    "", "end",
+                    values=(algorithm_name, "N/A", str(error)),
+                    tags=(self._next_row_tag(self.comparison_tree),))
+                continue
 
             avg_wt = sum(p.waiting_time for p in result) / len(result)
             avg_tat = sum(p.turnaround_time for p in result) / len(result)
             row = (algorithm_name, f"{avg_wt:.2f}", f"{avg_tat:.2f}", avg_wt, avg_tat)
             self.last_comparison_rows.append(row)
-            self.comparison_tree.insert("", "end", values=row[:3])
+            self.comparison_tree.insert(
+                "", "end", values=row[:3],
+                tags=(self._next_row_tag(self.comparison_tree),))
 
-        best_row = min(self.last_comparison_rows, key=lambda row: (row[3], row[4], row[0]))
-        self.best_algorithm_label.configure(
-            text=f"Best Algorithm: {best_row[0]}  |  Avg WT: {best_row[1]}  |  Avg TAT: {best_row[2]}"
-        )
+        if self.last_comparison_rows:
+            best_row = min(self.last_comparison_rows, key=lambda row: (row[3], row[4], row[0]))
+            self.best_algorithm_label.configure(
+                text=f"{best_row[0]}   ·   Avg WT: {best_row[1]}   ·   Avg TAT: {best_row[2]}")
+        else:
+            self.best_algorithm_label.configure(text="Run comparison to see results")
         self.highlight_selected_algorithm()
 
     def highlight_selected_algorithm(self):
+        if not self.last_comparison_rows:
+            return
         selected_algorithm = self.get_selected_algorithm()
         for item_id in self.comparison_tree.get_children():
             row_values = self.comparison_tree.item(item_id, "values")
@@ -730,29 +1208,34 @@ class SchedulerApp:
             else:
                 self.comparison_tree.item(item_id, tags=())
 
+    # ==================== Exports ====================
     def export_current_results(self):
-        if not self.last_result_rows:
+        if not self.last_result_rows or not self.last_metrics:
             messagebox.showerror("Error", "Run a simulation before exporting")
             return
 
         file_path = filedialog.asksaveasfilename(
             defaultextension=".csv",
             filetypes=[("CSV files", "*.csv")],
-            title="Export Current Results"
-        )
+            title="Export Current Results")
         if not file_path:
             return
 
-        with open(file_path, "w", newline="", encoding="utf-8") as csv_file:
-            writer = csv.writer(csv_file)
-            writer.writerow(["Algorithm", self.algo_var.get()])
-            writer.writerow(["Average Waiting Time", self.summary_cards["Avg WT"].cget("text")])
-            writer.writerow(["Average Turnaround Time", self.summary_cards["Avg TAT"].cget("text")])
-            writer.writerow(["CPU Idle Time", self.summary_cards["Idle Time"].cget("text")])
-            writer.writerow(["CPU Utilization", self.summary_cards["CPU Util"].cget("text")])
-            writer.writerow([])
-            writer.writerow(["PID", "Completion Time", "Turnaround Time", "Waiting Time", "Response Time"])
-            writer.writerows(self.last_result_rows)
+        try:
+            with open(file_path, "w", newline="", encoding="utf-8") as csv_file:
+                writer = csv.writer(csv_file)
+                writer.writerow(["Algorithm", self.last_metrics["algorithm"]])
+                writer.writerow(["Average Waiting Time", f"{self.last_metrics['avg_wt']:.2f}"])
+                writer.writerow(["Average Turnaround Time", f"{self.last_metrics['avg_tat']:.2f}"])
+                writer.writerow(["CPU Idle Time", str(self.last_metrics["idle_time"])])
+                writer.writerow(["CPU Utilization", f"{self.last_metrics['cpu_util']:.2f}%"])
+                writer.writerow([])
+                writer.writerow(["PID", "Completion Time", "Turnaround Time",
+                                 "Waiting Time", "Response Time"])
+                writer.writerows(self.last_result_rows)
+        except OSError as error:
+            messagebox.showerror("Export failed", f"Could not write file:\n{error}")
+            return
 
         messagebox.showinfo("Export Complete", f"Results exported to:\n{file_path}")
 
@@ -764,16 +1247,19 @@ class SchedulerApp:
         file_path = filedialog.asksaveasfilename(
             defaultextension=".csv",
             filetypes=[("CSV files", "*.csv")],
-            title="Export Algorithm Comparison"
-        )
+            title="Export Algorithm Comparison")
         if not file_path:
             return
 
-        with open(file_path, "w", newline="", encoding="utf-8") as csv_file:
-            writer = csv.writer(csv_file)
-            writer.writerow(["Algorithm", "Average Waiting Time", "Average Turnaround Time"])
-            for algorithm_name, avg_wt, avg_tat, _, _ in self.last_comparison_rows:
-                writer.writerow([algorithm_name, avg_wt, avg_tat])
+        try:
+            with open(file_path, "w", newline="", encoding="utf-8") as csv_file:
+                writer = csv.writer(csv_file)
+                writer.writerow(["Algorithm", "Average Waiting Time", "Average Turnaround Time"])
+                for algorithm_name, avg_wt, avg_tat, _, _ in self.last_comparison_rows:
+                    writer.writerow([algorithm_name, avg_wt, avg_tat])
+        except OSError as error:
+            messagebox.showerror("Export failed", f"Could not write file:\n{error}")
+            return
 
         messagebox.showinfo("Export Complete", f"Comparison exported to:\n{file_path}")
 
@@ -781,7 +1267,7 @@ class SchedulerApp:
         self.clear_simulation_outputs()
         self.update_summary_cards()
 
-    # ------------------ Gantt ------------------
+    # ==================== Gantt chart (UNCHANGED rendering logic) ====================
     def show_gantt_chart(self, timeline):
         self.gantt_canvas.delete("all")
 
@@ -789,52 +1275,49 @@ class SchedulerApp:
             self.gantt_canvas.create_text(
                 420, 110,
                 text="Run a simulation to view the execution timeline.",
-                fill="#7f8b99",
-                font=("Segoe UI", 11)
-            )
+                fill=Palette.TEXT_MUTED, font=(self.UI_FONT, 11))
             return
 
         scale = 44
         y1, y2 = 72, 136
-        colors = ["#3b82f6", "#14b8a6", "#f59e0b", "#8b5cf6", "#ef4444", "#22c55e", "#06b6d4"]
+        colors = Palette.GANTT_COLORS
 
         self.gantt_canvas.create_text(
-            24, 28,
-            text="Timeline",
-            anchor="w",
-            fill="#e2e8f0",
-            font=("Segoe UI", 11, "bold")
-        )
-        self.gantt_canvas.create_line(24, y2 + 10, 980, y2 + 10, fill="#2a3440", width=1)
+            24, 28, text="Timeline", anchor="w",
+            fill=Palette.TEXT_PRIMARY, font=(self.DISPLAY_FONT, 11, "bold"))
+        self.gantt_canvas.create_line(
+            24, y2 + 10, 980, y2 + 10,
+            fill=Palette.BORDER, width=1)
 
         for index, (pid, start, end) in enumerate(timeline):
             x1 = 30 + start * scale
             x2 = 30 + end * scale
 
-            self.gantt_canvas.create_rectangle(x1, y1, x2, y2,
-                                               fill=colors[index % len(colors)], outline="#0f1419", width=1)
-            self.gantt_canvas.create_text((x1 + x2) / 2,
-                                          (y1 + y2) / 2,
-                                          text=pid,
-                                          fill="#f3f4f6",
-                                          font=("Segoe UI", 10, "bold"))
-
-            self.gantt_canvas.create_text(x1, y2 + 30, text=str(start), fill="#c2c8d0", font=("Segoe UI", 10))
+            self.gantt_canvas.create_rectangle(
+                x1, y1, x2, y2,
+                fill=colors[index % len(colors)],
+                outline=Palette.BG_INPUT, width=1)
+            self.gantt_canvas.create_text(
+                (x1 + x2) / 2, (y1 + y2) / 2,
+                text=pid, fill="#ffffff",
+                font=(self.UI_FONT, 10, "bold"))
+            self.gantt_canvas.create_text(
+                x1, y2 + 30, text=str(start),
+                fill=Palette.TEXT_SECONDARY, font=(self.UI_FONT, 10))
 
         self.gantt_canvas.create_text(
-            30 + timeline[-1][2] * scale,
-            y2 + 30,
+            30 + timeline[-1][2] * scale, y2 + 30,
             text=str(timeline[-1][2]),
-            fill="#c2c8d0",
-            font=("Segoe UI", 10)
-        )
+            fill=Palette.TEXT_SECONDARY, font=(self.UI_FONT, 10))
 
-    # ------------------ Simulate ------------------
+    # ==================== Simulate ====================
     def simulate(self, show_errors=True):
         if not self.processes:
             if show_errors:
                 messagebox.showerror("Error", "No processes added")
             return
+
+        self.notebook.select(self.simulation_tab)
 
         process_list = [
             Process(p.pid, p.arrival_time, p.burst_time, p.priority)
@@ -855,25 +1338,24 @@ class SchedulerApp:
         self.results_tree.delete(*self.results_tree.get_children())
         self.solution_text.delete("1.0", tk.END)
         self.last_result_rows = []
-        execution_order = " -> ".join(pid for pid, _, _ in timeline if pid != "IDLE")
+
+        execution_order = " → ".join(pid for pid, _, _ in timeline if pid != "IDLE")
         self.solution_text.insert(tk.END, f"Execution Order: {execution_order}\n\n")
 
         for p in result:
             response_time = p.start_time - p.arrival_time
-            row = (p.pid, p.completion_time, p.turnaround_time, p.waiting_time, response_time)
+            row = (p.pid, p.completion_time, p.turnaround_time,
+                   p.waiting_time, response_time)
             self.last_result_rows.append(row)
             self.results_tree.insert(
-                "",
-                "end",
-                values=row
-            )
+                "", "end", values=row,
+                tags=(self._next_row_tag(self.results_tree),))
 
             self.solution_text.insert(
                 tk.END,
                 f"{p.pid}: TAT={p.completion_time}-{p.arrival_time}={p.turnaround_time}, "
                 f"WT={p.turnaround_time}-{p.burst_time}={p.waiting_time}, "
-                f"RT={p.start_time}-{p.arrival_time}={response_time}\n"
-            )
+                f"RT={p.start_time}-{p.arrival_time}={response_time}\n")
 
         avg_wt = sum(p.waiting_time for p in result) / len(result)
         avg_tat = sum(p.turnaround_time for p in result) / len(result)
@@ -882,13 +1364,24 @@ class SchedulerApp:
         total_burst_time = sum(p.burst_time for p in result)
         idle_time = max(0, completion_time - total_burst_time)
         cpu_utilization = (total_burst_time / completion_time * 100) if completion_time else 0
+
+        self.last_metrics = {
+            "algorithm": algo,
+            "avg_wt": avg_wt,
+            "avg_tat": avg_tat,
+            "avg_rt": avg_rt,
+            "idle_time": idle_time,
+            "cpu_util": cpu_utilization,
+        }
+
         self.averages_label.configure(
-            text=f"Average Waiting Time: {avg_wt:.2f}    Average Turnaround Time: {avg_tat:.2f}"
-        )
+            text=f"Average Waiting Time: {avg_wt:.2f}    Average Turnaround Time: {avg_tat:.2f}")
         self.performance_label.configure(
-            text=f"Response Time Avg: {avg_rt:.2f}    CPU Idle Time: {idle_time}    CPU Utilization: {cpu_utilization:.2f}%"
-        )
-        self.update_summary_cards(f"{avg_wt:.2f}", f"{avg_tat:.2f}", str(idle_time), f"{cpu_utilization:.2f}%")
+            text=f"Response Time Avg: {avg_rt:.2f}    CPU Idle Time: {idle_time}    "
+                 f"CPU Utilization: {cpu_utilization:.2f}%")
+        self.update_summary_cards(
+            f"{avg_wt:.2f}", f"{avg_tat:.2f}",
+            str(idle_time), f"{cpu_utilization:.2f}%")
         self.highlight_selected_algorithm()
 
 
