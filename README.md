@@ -160,3 +160,4 @@ Example markdown once screenshots are added:
 ## Author
 
 - Hemang1410
+- PariBarot
