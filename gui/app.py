@@ -54,20 +54,91 @@ class SchedulerApp:
         "SRTF (Preemptive SJF)": lambda procs, tq: srtf_scheduling(procs),
     }
 
+    PROJECT_INFO = {
+        "team_members": "Hemang Mistry and Pari Barot",
+        "roll_numbers": "14885 & 15704",
+        "course": "Python Programming",
+        "semester": "Semester 4",
+        "institution": "Institute Of Advanced Research",
+    }
+
+    PRESETS = {
+        "Basic Example": {
+            "description": "A simple 4-process workload for general testing.",
+            "processes": [
+                ("P1", 0, 3, 2),
+                ("P2", 1, 6, 1),
+                ("P3", 2, 1, 4),
+                ("P4", 2, 2, 3),
+            ],
+        },
+        "Convoy Effect (FCFS)": {
+            "description": "One long process blocks many short ones. Try FCFS vs SJF — SJF wins big.",
+            "processes": [
+                ("P1", 0, 20, 1),
+                ("P2", 1, 2, 1),
+                ("P3", 2, 2, 1),
+                ("P4", 3, 2, 1),
+                ("P5", 4, 2, 1),
+            ],
+        },
+        "Starvation (Priority)": {
+            "description": "Low-priority process arrives first but keeps getting interrupted. Shows why preemptive priority can starve.",
+            "processes": [
+                ("P1", 0, 8, 5),
+                ("P2", 1, 4, 1),
+                ("P3", 2, 4, 1),
+                ("P4", 3, 4, 1),
+            ],
+        },
+        "Round Robin Advantage": {
+            "description": "Mixed burst times where RR gives fairer response times than FCFS or SJF.",
+            "processes": [
+                ("P1", 0, 10, 3),
+                ("P2", 1, 4, 2),
+                ("P3", 2, 3, 1),
+                ("P4", 3, 5, 4),
+            ],
+        },
+        "SRTF Showcase": {
+            "description": "New short processes keep arriving. SRTF preempts aggressively; SJF (non-preemptive) lags behind.",
+            "processes": [
+                ("P1", 0, 8, 2),
+                ("P2", 1, 4, 1),
+                ("P3", 2, 2, 3),
+                ("P4", 3, 1, 4),
+            ],
+        },
+        "Identical Arrivals": {
+            "description": "All processes arrive at t=0. Pure burst-time comparison; SJF should dominate.",
+            "processes": [
+                ("P1", 0, 6, 3),
+                ("P2", 0, 8, 1),
+                ("P3", 0, 7, 4),
+                ("P4", 0, 3, 2),
+                ("P5", 0, 4, 5),
+            ],
+        },
+    }
+
     def __init__(self, root):
         self.root = root
         self.root.title("OS Process Scheduler Simulator")
         self._apply_zoomed_state()
-        self.root.configure(bg=Palette.BG_APP)
 
         self._resolve_fonts()
-
 
         self.processes = []
         self.selected_process_index = None
         self.last_result_rows = []
         self.last_comparison_rows = []
         self.last_metrics = {}
+        self.last_timeline = []
+
+        self._build_ui()
+
+    def _build_ui(self):
+        self.root.configure(bg=Palette.BG_APP)
 
         self._setup_styles()
         self._build_main_layout()
@@ -77,8 +148,204 @@ class SchedulerApp:
         self._build_footer()
         self._bind_shortcuts()
 
+        self.refresh_process_tree()
         self.update_summary_cards()
-        self.show_gantt_chart([])
+        self.show_gantt_chart(self.last_timeline)
+
+        if self.algo_var.get():
+            self.update_quantum_state()
+            self.algorithm_help_label.configure(
+                text=self.ALGORITHM_HELP.get(self.get_selected_algorithm(), ""))
+
+        if self.last_result_rows:
+            self._repopulate_results()
+
+        if self.last_comparison_rows:
+            self._repopulate_comparison()
+
+    def toggle_theme(self):
+        new_theme = "light" if Palette.current_name() == "dark" else "dark"
+        Palette.set_theme(new_theme)
+
+        saved_algo = self.algo_var.get() if hasattr(self, "algo_var") else None
+        saved_quantum = self.quantum_entry.get() if hasattr(self, "quantum_entry") else "3"
+
+        for child in self.root.winfo_children():
+            child.destroy()
+
+        self._build_ui()
+
+        if saved_algo:
+            self.algo_var.set(saved_algo)
+            self.algorithm_help_label.configure(
+                text=self.ALGORITHM_HELP.get(saved_algo, ""))
+        self.quantum_entry.delete(0, tk.END)
+        self.quantum_entry.insert(0, saved_quantum)
+        self.update_quantum_state()
+
+    def show_help_dialog(self):
+        dialog = tk.Toplevel(self.root)
+        dialog.title("Help & About")
+        dialog.configure(bg=Palette.BG_APP)
+        dialog.geometry("680x640")
+        dialog.transient(self.root)
+        dialog.grab_set()
+
+        container = tk.Frame(dialog, bg=Palette.BG_APP)
+        container.pack(fill="both", expand=True, padx=24, pady=24)
+
+        header = tk.Frame(container, bg=Palette.BG_APP)
+        header.pack(fill="x", pady=(0, 18))
+        tk.Label(
+            header, text="Help & About",
+            font=(self.DISPLAY_FONT, 18, "bold"),
+            fg=Palette.TEXT_PRIMARY, bg=Palette.BG_APP,
+        ).pack(anchor="w")
+        tk.Label(
+            header, text="Quick reference for algorithms, shortcuts, and project info.",
+            font=(self.UI_FONT, 10),
+            fg=Palette.TEXT_MUTED, bg=Palette.BG_APP,
+        ).pack(anchor="w", pady=(4, 0))
+
+        body_canvas = tk.Canvas(
+            container, bg=Palette.BG_APP, highlightthickness=0,
+        )
+        body_scroll = ttk.Scrollbar(
+            container, orient="vertical", command=body_canvas.yview,
+        )
+        body = tk.Frame(body_canvas, bg=Palette.BG_APP)
+        body_canvas.configure(yscrollcommand=body_scroll.set)
+        body_canvas.pack(side="left", fill="both", expand=True)
+        body_scroll.pack(side="right", fill="y")
+        body_window = body_canvas.create_window((0, 0), window=body, anchor="nw")
+        body.bind(
+            "<Configure>",
+            lambda _e: body_canvas.configure(scrollregion=body_canvas.bbox("all")),
+        )
+        body_canvas.bind(
+            "<Configure>",
+            lambda e: body_canvas.itemconfigure(body_window, width=e.width),
+        )
+
+        def on_wheel(event):
+            if event.num == 4:
+                body_canvas.yview_scroll(-1, "units")
+            elif event.num == 5:
+                body_canvas.yview_scroll(1, "units")
+            elif event.delta:
+                body_canvas.yview_scroll(-1 if event.delta > 0 else 1, "units")
+
+        body_canvas.bind("<Enter>", lambda _e: dialog.bind_all("<MouseWheel>", on_wheel))
+        body_canvas.bind("<Leave>", lambda _e: dialog.unbind_all("<MouseWheel>"))
+
+        self._help_section(body, "Scheduling Algorithms")
+        for name, desc in self.ALGORITHM_HELP.items():
+            self._help_row(body, name, desc, color=Palette.PRIMARY)
+
+        self._help_section(body, "Key Formulas", top_pad=18)
+        formulas = [
+            ("Turnaround Time", "TAT = Completion Time − Arrival Time"),
+            ("Waiting Time",    "WT = Turnaround Time − Burst Time"),
+            ("Response Time",   "RT = Start Time − Arrival Time"),
+            ("CPU Utilization", "Util = (Total Burst / Completion Time) × 100%"),
+            ("Idle Time",       "Idle = Completion Time − Total Burst Time"),
+        ]
+        for label, formula in formulas:
+            self._help_row(body, label, formula, color=Palette.ACCENT, mono=True)
+
+        self._help_section(body, "Keyboard Shortcuts", top_pad=18)
+        shortcuts = [
+            ("Ctrl + N",        "Focus the Process ID field to start a new entry"),
+            ("Ctrl + R / F5",   "Run the simulation with the current algorithm"),
+            ("Ctrl + Shift + C","Compare all algorithms on the current workload"),
+            ("Ctrl + E",        "Export the current results to CSV"),
+            ("Esc",             "Cancel process edit mode"),
+            ("Delete",          "Remove the selected process from the list"),
+        ]
+        for key, desc in shortcuts:
+            self._help_row(body, key, desc, color=Palette.INFO, mono=True)
+
+        self._help_section(body, "Project Information", top_pad=18)
+        info = self.PROJECT_INFO
+        self._help_row(body, "Team Members", info.get("team_members", "—"), color=Palette.SUCCESS)
+        self._help_row(body, "Roll Numbers", info.get("roll_numbers", "—"), color=Palette.SUCCESS)
+        self._help_row(body, "Course",       info.get("course", "—"),       color=Palette.SUCCESS)
+        self._help_row(body, "Semester",     info.get("semester", "—"),     color=Palette.SUCCESS)
+        self._help_row(body, "Institution",  info.get("institution", "—"),  color=Palette.SUCCESS)
+
+        tk.Frame(body, bg=Palette.BG_APP, height=12).pack()
+
+        footer = tk.Frame(container, bg=Palette.BG_APP)
+        footer.pack(fill="x", pady=(16, 0))
+        tk.Button(
+            footer, text="Close",
+            command=dialog.destroy, **self.button_style,
+        ).pack(side="right")
+
+        dialog.update_idletasks()
+        x = self.root.winfo_rootx() + (self.root.winfo_width() - dialog.winfo_width()) // 2
+        y = self.root.winfo_rooty() + (self.root.winfo_height() - dialog.winfo_height()) // 2
+        dialog.geometry(f"+{max(0, x)}+{max(0, y)}")
+
+    def _help_section(self, parent, title, top_pad=0):
+        if top_pad:
+            tk.Frame(parent, bg=Palette.BG_APP, height=top_pad).pack()
+        tk.Label(
+            parent, text=title.upper(),
+            font=(self.UI_FONT, 9, "bold"),
+            fg=Palette.TEXT_MUTED, bg=Palette.BG_APP,
+        ).pack(anchor="w", pady=(0, 8))
+
+    def _help_row(self, parent, label, desc, color=None, mono=False):
+        row = tk.Frame(
+            parent, bg=Palette.BG_SURFACE,
+            highlightthickness=1, highlightbackground=Palette.BORDER_SOFT,
+        )
+        row.pack(fill="x", pady=(0, 6))
+        if color:
+            tk.Frame(row, bg=color, width=3).pack(side="left", fill="y")
+        inner = tk.Frame(row, bg=Palette.BG_SURFACE)
+        inner.pack(side="left", fill="x", expand=True, padx=14, pady=10)
+        tk.Label(
+            inner, text=label,
+            font=(self.MONO_FONT if mono else self.UI_FONT, 10, "bold"),
+            fg=Palette.TEXT_PRIMARY, bg=Palette.BG_SURFACE,
+        ).pack(anchor="w")
+        tk.Label(
+            inner, text=desc,
+            font=(self.UI_FONT, 10),
+            fg=Palette.TEXT_SECONDARY, bg=Palette.BG_SURFACE,
+            wraplength=560, justify="left",
+        ).pack(anchor="w", pady=(2, 0))
+
+    def _repopulate_results(self):
+        self.results_tree.delete(*self.results_tree.get_children())
+        for row in self.last_result_rows:
+            self.results_tree.insert(
+                "", "end", values=row,
+                tags=(self._next_row_tag(self.results_tree),))
+        if self.last_metrics:
+            m = self.last_metrics
+            self.averages_label.configure(
+                text=f"Average Waiting Time: {m['avg_wt']:.2f}    Average Turnaround Time: {m['avg_tat']:.2f}")
+            self.performance_label.configure(
+                text=f"Response Time Avg: {m['avg_rt']:.2f}    CPU Idle Time: {m['idle_time']}    "
+                     f"CPU Utilization: {m['cpu_util']:.2f}%")
+            self.update_summary_cards(
+                f"{m['avg_wt']:.2f}", f"{m['avg_tat']:.2f}",
+                str(m['idle_time']), f"{m['cpu_util']:.2f}%")
+
+    def _repopulate_comparison(self):
+        self.comparison_tree.delete(*self.comparison_tree.get_children())
+        for row in self.last_comparison_rows:
+            self.comparison_tree.insert(
+                "", "end", values=row[:3],
+                tags=(self._next_row_tag(self.comparison_tree),))
+        if self.last_comparison_rows:
+            best_row = min(self.last_comparison_rows, key=lambda r: (r[3], r[4], r[0]))
+            self.best_algorithm_label.configure(
+                text=f"{best_row[0]}   ·   Avg WT: {best_row[1]}   ·   Avg TAT: {best_row[2]}")
+        self.highlight_selected_algorithm()
 
 
     def _apply_zoomed_state(self):
@@ -136,71 +403,120 @@ class SchedulerApp:
         self.main_frame = tk.Frame(self.root, bg=Palette.BG_APP)
         self.main_frame.pack(fill="both", expand=True)
 
-
         header_frame = tk.Frame(
             self.main_frame, bg=Palette.BG_SURFACE,
-            highlightthickness=1, highlightbackground=Palette.BORDER,
+            highlightthickness=0,
         )
-        header_frame.pack(fill="x", padx=28, pady=(24, 18))
+        header_frame.pack(fill="x")
 
+        header_inner = tk.Frame(header_frame, bg=Palette.BG_SURFACE)
+        header_inner.pack(fill="x", padx=32, pady=20)
 
-        header_text = tk.Frame(header_frame, bg=Palette.BG_SURFACE)
-        header_text.pack(side="left", fill="both", expand=True, padx=28, pady=24)
+        header_text = tk.Frame(header_inner, bg=Palette.BG_SURFACE)
+        header_text.pack(side="left", fill="y")
 
+        brand_row = tk.Frame(header_text, bg=Palette.BG_SURFACE)
+        brand_row.pack(anchor="w")
 
-        eyebrow_row = tk.Frame(header_text, bg=Palette.BG_SURFACE)
-        eyebrow_row.pack(anchor="w")
-        tk.Frame(eyebrow_row, bg=Palette.PRIMARY, width=3, height=14).pack(
-            side="left", padx=(0, 8))
+        logo_box = tk.Frame(
+            brand_row, bg=Palette.PRIMARY, width=32, height=32,
+        )
+        logo_box.pack(side="left")
+        logo_box.pack_propagate(False)
         tk.Label(
-            eyebrow_row, text="OPERATING SYSTEMS SCHEDULER LAB",
-            font=(self.UI_FONT, 9, "bold"),
-            fg=Palette.PRIMARY, bg=Palette.BG_SURFACE,
-        ).pack(side="left")
+            logo_box, text="⚙", font=(self.UI_FONT, 16, "bold"),
+            fg=Palette.PRIMARY_TEXT, bg=Palette.PRIMARY,
+        ).pack(expand=True)
 
+        title_col = tk.Frame(brand_row, bg=Palette.BG_SURFACE)
+        title_col.pack(side="left", padx=(14, 0))
         tk.Label(
-            header_text, text="OS Process Scheduler Simulator",
-            font=(self.DISPLAY_FONT, 26, "bold"),
+            title_col, text="Process Scheduler",
+            font=(self.DISPLAY_FONT, 16, "bold"),
             fg=Palette.TEXT_PRIMARY, bg=Palette.BG_SURFACE,
-        ).pack(anchor="w", pady=(10, 0))
-        tk.Label(
-            header_text,
-            text="Build workloads, compare CPU scheduling strategies, and inspect execution timelines in one place.",
-            font=(self.UI_FONT, 10),
-            fg=Palette.TEXT_MUTED, bg=Palette.BG_SURFACE,
-        ).pack(anchor="w", pady=(8, 0))
-
-
-        header_stats = tk.Frame(header_frame, bg=Palette.BG_SURFACE)
-        header_stats.pack(side="right", padx=28, pady=24)
-
-        stat_card = tk.Frame(
-            header_stats, bg=Palette.BG_SURFACE_2,
-            highlightthickness=1, highlightbackground=Palette.BORDER,
-            padx=18, pady=14,
-        )
-        stat_card.pack(anchor="e")
-        tk.Label(
-            stat_card, text="CURRENT WORKSPACE",
-            font=(self.UI_FONT, 8, "bold"),
-            fg=Palette.ACCENT, bg=Palette.BG_SURFACE_2,
         ).pack(anchor="w")
-        self.header_algorithm_label = tk.Label(
-            stat_card, text="Algorithm: FCFS",
-            font=(self.UI_FONT, 10, "bold"),
-            fg=Palette.TEXT_PRIMARY, bg=Palette.BG_SURFACE_2,
-        )
-        self.header_algorithm_label.pack(anchor="w", pady=(10, 2))
-        self.header_process_count_label = tk.Label(
-            stat_card, text="Processes: 0",
-            font=(self.UI_FONT, 10),
-            fg=Palette.TEXT_MUTED, bg=Palette.BG_SURFACE_2,
-        )
-        self.header_process_count_label.pack(anchor="w")
+        tk.Label(
+            title_col, text="Operating Systems Simulator",
+            font=(self.UI_FONT, 9),
+            fg=Palette.TEXT_MUTED, bg=Palette.BG_SURFACE,
+        ).pack(anchor="w")
 
+        header_right = tk.Frame(header_inner, bg=Palette.BG_SURFACE)
+        header_right.pack(side="right", fill="y")
+
+        self.status_pill = tk.Frame(
+            header_right, bg=Palette.BG_SURFACE_2,
+            highlightthickness=1, highlightbackground=Palette.BORDER_SOFT,
+        )
+        self.status_pill.pack(side="left", padx=(0, 12))
+        pill_inner = tk.Frame(self.status_pill, bg=Palette.BG_SURFACE_2)
+        pill_inner.pack(padx=14, pady=8)
+        self.status_dot = tk.Canvas(
+            pill_inner, width=8, height=8, bg=Palette.BG_SURFACE_2,
+            highlightthickness=0,
+        )
+        self.status_dot.pack(side="left", padx=(0, 8))
+        self.status_dot.create_oval(1, 1, 7, 7, fill=Palette.TEXT_MUTED, outline="")
+        self.header_process_count_label = tk.Label(
+            pill_inner, text="0 processes",
+            font=(self.UI_FONT, 9, "bold"),
+            fg=Palette.TEXT_SECONDARY, bg=Palette.BG_SURFACE_2,
+        )
+        self.header_process_count_label.pack(side="left")
+
+        self.algo_pill = tk.Frame(
+            header_right, bg=Palette.BG_SURFACE_2,
+            highlightthickness=1, highlightbackground=Palette.BORDER_SOFT,
+        )
+        self.algo_pill.pack(side="left", padx=(0, 12))
+        algo_pill_inner = tk.Frame(self.algo_pill, bg=Palette.BG_SURFACE_2)
+        algo_pill_inner.pack(padx=14, pady=8)
+        tk.Label(
+            algo_pill_inner, text="ALG",
+            font=(self.UI_FONT, 8, "bold"),
+            fg=Palette.TEXT_MUTED, bg=Palette.BG_SURFACE_2,
+        ).pack(side="left", padx=(0, 8))
+        self.header_algorithm_label = tk.Label(
+            algo_pill_inner, text="FCFS",
+            font=(self.UI_FONT, 9, "bold"),
+            fg=Palette.PRIMARY, bg=Palette.BG_SURFACE_2,
+        )
+        self.header_algorithm_label.pack(side="left")
+
+        theme_icon = "☀" if Palette.current_name() == "dark" else "☾"
+        self.theme_toggle_btn = tk.Button(
+            header_right, text=theme_icon,
+            font=(self.UI_FONT, 12),
+            bg=Palette.BG_SURFACE_2, fg=Palette.TEXT_SECONDARY,
+            activebackground=Palette.GHOST_BG_HOVER,
+            activeforeground=Palette.TEXT_PRIMARY,
+            relief="flat", bd=0, cursor="hand2",
+            padx=12, pady=6,
+            highlightthickness=1,
+            highlightbackground=Palette.BORDER_SOFT,
+            command=self.toggle_theme,
+        )
+        self.theme_toggle_btn.pack(side="left")
+
+        self.help_btn = tk.Button(
+            header_right, text="?",
+            font=(self.UI_FONT, 11, "bold"),
+            bg=Palette.BG_SURFACE_2, fg=Palette.TEXT_SECONDARY,
+            activebackground=Palette.GHOST_BG_HOVER,
+            activeforeground=Palette.TEXT_PRIMARY,
+            relief="flat", bd=0, cursor="hand2",
+            padx=12, pady=6,
+            highlightthickness=1,
+            highlightbackground=Palette.BORDER_SOFT,
+            command=self.show_help_dialog,
+        )
+        self.help_btn.pack(side="left", padx=(8, 0))
+
+        separator = tk.Frame(self.main_frame, bg=Palette.BORDER_SOFT, height=1)
+        separator.pack(fill="x")
 
         self.notebook = ttk.Notebook(self.main_frame, style="Scheduler.TNotebook")
-        self.notebook.pack(fill="both", expand=True, padx=28, pady=(0, 18))
+        self.notebook.pack(fill="both", expand=True, padx=32, pady=(16, 16))
 
         self.processes_tab = tk.Frame(self.notebook, bg=Palette.BG_APP)
         self.simulation_tab = tk.Frame(self.notebook, bg=Palette.BG_APP)
@@ -214,22 +530,6 @@ class SchedulerApp:
         self.simulation_page = self._make_scrollable_tab(self.simulation_tab)
         self.comparison_page = self._make_scrollable_tab(self.comparison_tab)
 
-        self._add_tab_banner(
-            self.processes_page,
-            "Process Workspace",
-            "Create, edit, and organize the workload before running any scheduling strategy."
-        )
-        self._add_tab_banner(
-            self.simulation_page,
-            "Simulation Studio",
-            "Run one algorithm at a time, inspect metrics, and review the Gantt execution flow."
-        )
-        self._add_tab_banner(
-            self.comparison_page,
-            "Comparison Board",
-            "Compare every available algorithm on the same process set and spot the best performer."
-        )
-
     def _build_processes_tab(self):
 
         input_card = self._card(self.processes_page)
@@ -237,60 +537,70 @@ class SchedulerApp:
 
         self._section_title(
             input_card, "Add Process",
-            "Enter process details manually or load a demo workload."
+            "Fill in the fields below or load the sample workload to get started."
         )
 
         input_frame = tk.Frame(input_card, bg=Palette.BG_SURFACE)
-        input_frame.pack(fill="x", padx=22, pady=(0, 22))
+        input_frame.pack(fill="x", padx=24, pady=(0, 20))
 
-
-        for col_index, header in (
-            (1, "Process ID"), (3, "Arrival"), (5, "Burst"), (7, "Priority"),
-        ):
+        fields = [
+            ("Process ID", "pid_entry"),
+            ("Arrival Time", "at_entry"),
+            ("Burst Time", "bt_entry"),
+            ("Priority", "pr_entry"),
+        ]
+        for col_index, (label, attr) in enumerate(fields):
+            col_frame = tk.Frame(input_frame, bg=Palette.BG_SURFACE)
+            col_frame.grid(row=0, column=col_index, sticky="ew", padx=(0, 14))
             tk.Label(
-                input_frame, text=header,
+                col_frame, text=label,
                 font=(self.UI_FONT, 9, "bold"),
-                fg=Palette.TEXT_SECONDARY, bg=Palette.BG_SURFACE,
-            ).grid(row=0, column=col_index, sticky="w", padx=(0, 14), pady=(0, 6))
+                fg=Palette.TEXT_MUTED, bg=Palette.BG_SURFACE,
+            ).pack(anchor="w", pady=(0, 6))
+            entry = tk.Entry(col_frame, **self.entry_style)
+            entry.pack(fill="x", ipady=6)
+            setattr(self, attr, entry)
+            input_frame.grid_columnconfigure(col_index, weight=1)
 
-        self.pid_entry = tk.Entry(input_frame, width=12, **self.entry_style)
-        self.at_entry = tk.Entry(input_frame, width=12, **self.entry_style)
-        self.bt_entry = tk.Entry(input_frame, width=12, **self.entry_style)
-        self.pr_entry = tk.Entry(input_frame, width=12, **self.entry_style)
-
-        self.pid_entry.grid(row=1, column=1, padx=(0, 14), pady=(0, 6), sticky="ew", ipady=4)
-        self.at_entry.grid(row=1, column=3, padx=(0, 14), pady=(0, 6), sticky="ew", ipady=4)
-        self.bt_entry.grid(row=1, column=5, padx=(0, 14), pady=(0, 6), sticky="ew", ipady=4)
-        self.pr_entry.grid(row=1, column=7, padx=(0, 14), pady=(0, 6), sticky="ew", ipady=4)
+        button_row = tk.Frame(input_card, bg=Palette.BG_SURFACE)
+        button_row.pack(fill="x", padx=24, pady=(0, 22))
 
         self.add_update_button = tk.Button(
-            input_frame, text="Add Process",
+            button_row, text="+  Add Process",
             command=self.add_or_update_process, **self.button_style)
-        self.add_update_button.grid(row=1, column=8, padx=(8, 8), sticky="ew")
+        self.add_update_button.pack(side="left")
 
         self.cancel_edit_button = tk.Button(
-            input_frame, text="Cancel",
+            button_row, text="Cancel",
             command=self.cancel_edit, **self.secondary_button_style)
-        self.cancel_edit_button.grid(row=1, column=9, sticky="ew")
-        self.cancel_edit_button.grid_remove()
+        self.cancel_edit_button.pack(side="left", padx=(10, 0))
+        self.cancel_edit_button.pack_forget()
 
-        self.demo_button = tk.Button(
-            input_frame, text="Load Demo Case",
-            command=self.load_demo_case, **self.secondary_button_style)
-        self.demo_button.grid(row=2, column=8, columnspan=2, pady=(14, 0), sticky="ew")
+        preset_frame = tk.Frame(button_row, bg=Palette.BG_SURFACE)
+        preset_frame.pack(side="right")
+        tk.Label(
+            preset_frame, text="Load preset:",
+            font=(self.UI_FONT, 9, "bold"),
+            fg=Palette.TEXT_MUTED, bg=Palette.BG_SURFACE,
+        ).pack(side="left", padx=(0, 8))
+        self.preset_var = tk.StringVar()
+        self.preset_dropdown = ttk.Combobox(
+            preset_frame, textvariable=self.preset_var,
+            values=list(self.PRESETS.keys()),
+            state="readonly", width=28, style="Scheduler.TCombobox",
+        )
+        self.preset_dropdown.pack(side="left")
+        self.preset_dropdown.bind("<<ComboboxSelected>>", self._on_preset_selected)
 
         for entry in (self.pid_entry, self.at_entry, self.bt_entry, self.pr_entry):
             entry.bind("<Return>", self.on_add_process_enter)
-
-        for column in (1, 3, 5, 7, 8, 9):
-            input_frame.grid_columnconfigure(column, weight=1)
 
 
         table_outer = self._card(self.processes_page)
         table_outer.pack(fill="both", expand=True, pady=(0, 16))
 
         table_header = tk.Frame(table_outer, bg=Palette.BG_SURFACE)
-        table_header.pack(fill="x", padx=22, pady=(20, 14))
+        table_header.pack(fill="x", padx=24, pady=(20, 14))
 
         title_col = tk.Frame(table_header, bg=Palette.BG_SURFACE)
         title_col.pack(side="left")
@@ -300,7 +610,7 @@ class SchedulerApp:
             fg=Palette.TEXT_PRIMARY, bg=Palette.BG_SURFACE,
         ).pack(anchor="w")
         tk.Label(
-            title_col, text="Click a row to edit, then save your changes.",
+            title_col, text="Click any row to edit its values.",
             font=(self.UI_FONT, 9),
             fg=Palette.TEXT_MUTED, bg=Palette.BG_SURFACE,
         ).pack(anchor="w", pady=(2, 0))
@@ -320,13 +630,14 @@ class SchedulerApp:
         ).pack(side="left")
 
         table_frame = tk.Frame(table_outer, bg=Palette.BG_SURFACE)
-        table_frame.pack(fill="both", expand=True, padx=22, pady=(0, 22))
+        table_frame.pack(fill="both", expand=True, padx=24, pady=(0, 24))
 
         self.tree = ttk.Treeview(
             table_frame, columns=("PID", "AT", "BT", "PR"),
             show="headings", style="Scheduler.Treeview")
-        for col in ("PID", "AT", "BT", "PR"):
-            self.tree.heading(col, text=col)
+        for col, header in (("PID", "Process ID"), ("AT", "Arrival"),
+                            ("BT", "Burst"), ("PR", "Priority")):
+            self.tree.heading(col, text=header)
             self.tree.column(col, width=150, anchor="center")
 
         table_scroll = ttk.Scrollbar(table_frame, orient="vertical", command=self.tree.yview)
@@ -336,73 +647,14 @@ class SchedulerApp:
         self.tree.bind("<<TreeviewSelect>>", self.on_tree_select)
         self._apply_tree_row_styles(self.tree)
 
-    def _build_simulation_tab(self):
-
-        algo_card = self._card(self.simulation_page)
-        algo_card.pack(fill="x", pady=(0, 16))
-
-        self._section_title(
-            algo_card, "Simulation Controls",
-            "Pick an algorithm, tune the controls, then simulate or compare all methods."
-        )
-
-        algo_frame = tk.Frame(algo_card, bg=Palette.BG_SURFACE)
-        algo_frame.pack(fill="x", padx=22, pady=(0, 22))
-
-        self.algo_var = tk.StringVar()
-
-        self.algo_dropdown = ttk.Combobox(
-            algo_frame, textvariable=self.algo_var, values=self.ALGORITHMS,
-            state="readonly", width=30, style="Scheduler.TCombobox")
-        self.algo_dropdown.grid(row=0, column=0, padx=(0, 16), sticky="ew")
-        self.algo_dropdown.current(0)
-
-        tk.Label(
-            algo_frame, text="Time Quantum",
-            font=(self.UI_FONT, 9, "bold"),
-            fg=Palette.TEXT_SECONDARY, bg=Palette.BG_SURFACE,
-        ).grid(row=0, column=1, sticky="w", padx=(0, 10))
-        self.quantum_entry = tk.Entry(algo_frame, width=10, **self.entry_style)
-        self.quantum_entry.grid(row=0, column=2, sticky="ew", ipady=4)
-        self.quantum_entry.insert(0, "3")
-
-        tk.Button(
-            algo_frame, text="Simulate",
-            command=self.simulate, **self.button_style,
-        ).grid(row=0, column=3, padx=(16, 0), sticky="ew")
-        tk.Button(
-            algo_frame, text="Compare All",
-            command=self.compare_algorithms, **self.secondary_button_style,
-        ).grid(row=0, column=4, padx=(12, 0), sticky="ew")
-
-
-        help_chip = tk.Frame(
-            algo_card, bg=Palette.BG_INPUT,
-            highlightthickness=1, highlightbackground=Palette.BORDER_SOFT,
-        )
-        help_chip.pack(fill="x", padx=22, pady=(0, 22))
-        help_inner = tk.Frame(help_chip, bg=Palette.BG_INPUT)
-        help_inner.pack(fill="x", padx=14, pady=12)
-        tk.Label(
-            help_inner, text="ⓘ",
-            font=(self.UI_FONT, 11, "bold"),
-            fg=Palette.PRIMARY, bg=Palette.BG_INPUT,
-        ).pack(side="left", padx=(0, 10), anchor="n")
-        self.algorithm_help_label = tk.Label(
-            help_inner, text=self.ALGORITHM_HELP[self.get_selected_algorithm()],
+        self.processes_empty_label = tk.Label(
+            table_frame,
+            text="No processes yet. Add one above or pick a preset to get started.",
             font=(self.UI_FONT, 10),
-            fg=Palette.TEXT_SECONDARY, bg=Palette.BG_INPUT,
-            wraplength=900, justify="left",
+            fg=Palette.TEXT_MUTED, bg=Palette.BG_SURFACE,
         )
-        self.algorithm_help_label.pack(side="left", fill="x", expand=True)
 
-        algo_frame.grid_columnconfigure(0, weight=3)
-        algo_frame.grid_columnconfigure(2, weight=1)
-        algo_frame.grid_columnconfigure(3, weight=1)
-        algo_frame.grid_columnconfigure(4, weight=1)
-        self.algo_dropdown.bind("<<ComboboxSelected>>", self.on_algorithm_change)
-        self.update_quantum_state()
-
+    def _build_simulation_tab(self):
 
         summary_frame = tk.Frame(self.simulation_page, bg=Palette.BG_APP)
         summary_frame.pack(fill="x", pady=(0, 16))
@@ -413,7 +665,7 @@ class SchedulerApp:
             ("Algorithm", Palette.PRIMARY),
             ("Avg WT", Palette.ACCENT),
             ("Avg TAT", Palette.ACCENT),
-            ("Idle Time", Palette.TEXT_SECONDARY),
+            ("Idle Time", Palette.WARNING),
             ("CPU Util", Palette.SUCCESS),
         ]
         for card_title, accent_color in card_defs:
@@ -421,21 +673,134 @@ class SchedulerApp:
                 summary_frame, card_title, accent_color)
         summary_frame.winfo_children()[-1].pack_configure(padx=(0, 0))
 
+        algo_card = self._card(self.simulation_page)
+        algo_card.pack(fill="x", pady=(0, 16))
+
+        self._section_title(
+            algo_card, "Simulation Controls",
+            "Choose a scheduling algorithm, set parameters, and run the simulation."
+        )
+
+        algo_frame = tk.Frame(algo_card, bg=Palette.BG_SURFACE)
+        algo_frame.pack(fill="x", padx=24, pady=(0, 18))
+
+        self.algo_var = tk.StringVar()
+
+        algo_col = tk.Frame(algo_frame, bg=Palette.BG_SURFACE)
+        algo_col.grid(row=0, column=0, sticky="ew", padx=(0, 16))
+        tk.Label(
+            algo_col, text="Algorithm",
+            font=(self.UI_FONT, 9, "bold"),
+            fg=Palette.TEXT_MUTED, bg=Palette.BG_SURFACE,
+        ).pack(anchor="w", pady=(0, 6))
+        self.algo_dropdown = ttk.Combobox(
+            algo_col, textvariable=self.algo_var, values=self.ALGORITHMS,
+            state="readonly", style="Scheduler.TCombobox")
+        self.algo_dropdown.pack(fill="x")
+        self.algo_dropdown.current(0)
+
+        quantum_col = tk.Frame(algo_frame, bg=Palette.BG_SURFACE)
+        quantum_col.grid(row=0, column=1, sticky="ew", padx=(0, 16))
+        tk.Label(
+            quantum_col, text="Time Quantum",
+            font=(self.UI_FONT, 9, "bold"),
+            fg=Palette.TEXT_MUTED, bg=Palette.BG_SURFACE,
+        ).pack(anchor="w", pady=(0, 6))
+        self.quantum_entry = tk.Entry(quantum_col, **self.entry_style)
+        self.quantum_entry.pack(fill="x", ipady=6)
+        self.quantum_entry.insert(0, "3")
+
+        action_col = tk.Frame(algo_frame, bg=Palette.BG_SURFACE)
+        action_col.grid(row=0, column=2, sticky="e")
+        tk.Label(
+            action_col, text=" ",
+            font=(self.UI_FONT, 9, "bold"),
+            bg=Palette.BG_SURFACE,
+        ).pack(anchor="w", pady=(0, 6))
+        action_buttons = tk.Frame(action_col, bg=Palette.BG_SURFACE)
+        action_buttons.pack(fill="x")
+        tk.Button(
+            action_buttons, text="▶  Simulate",
+            command=self.simulate, **self.button_style,
+        ).pack(side="left")
+        tk.Button(
+            action_buttons, text="Compare All",
+            command=self.compare_algorithms, **self.secondary_button_style,
+        ).pack(side="left", padx=(10, 0))
+
+        algo_frame.grid_columnconfigure(0, weight=3)
+        algo_frame.grid_columnconfigure(1, weight=1)
+        algo_frame.grid_columnconfigure(2, weight=0)
+
+        help_chip = tk.Frame(
+            algo_card, bg=Palette.BG_SURFACE_2,
+            highlightthickness=1, highlightbackground=Palette.BORDER_SOFT,
+        )
+        help_chip.pack(fill="x", padx=24, pady=(0, 22))
+        help_inner = tk.Frame(help_chip, bg=Palette.BG_SURFACE_2)
+        help_inner.pack(fill="x", padx=14, pady=12)
+        tk.Label(
+            help_inner, text="ⓘ",
+            font=(self.UI_FONT, 12, "bold"),
+            fg=Palette.INFO, bg=Palette.BG_SURFACE_2,
+        ).pack(side="left", padx=(0, 10), anchor="n")
+        self.algorithm_help_label = tk.Label(
+            help_inner, text=self.ALGORITHM_HELP[self.get_selected_algorithm()],
+            font=(self.UI_FONT, 10),
+            fg=Palette.TEXT_SECONDARY, bg=Palette.BG_SURFACE_2,
+            wraplength=900, justify="left",
+        )
+        self.algorithm_help_label.pack(side="left", fill="x", expand=True)
+
+        self.algo_dropdown.bind("<<ComboboxSelected>>", self.on_algorithm_change)
+        self.update_quantum_state()
+
+        gantt_card = self._card(self.simulation_page)
+        gantt_card.pack(fill="x", pady=(0, 16))
+        self._section_title(
+            gantt_card, "Execution Timeline",
+            "Visual representation of when each process runs on the CPU."
+        )
+
+        self.gantt_canvas = tk.Canvas(
+            gantt_card, height=220, bg=Palette.BG_SURFACE_2,
+            highlightthickness=1, highlightbackground=Palette.BORDER_SOFT,
+        )
+        self.gantt_canvas.pack(fill="x", padx=24, pady=(0, 24))
 
         output_card = self._card(self.simulation_page)
         output_card.pack(fill="both", expand=True, pady=(0, 16))
 
-        self._section_title(output_card, "Results")
+        output_header = tk.Frame(output_card, bg=Palette.BG_SURFACE)
+        output_header.pack(fill="x", padx=24, pady=(20, 14))
+        title_col = tk.Frame(output_header, bg=Palette.BG_SURFACE)
+        title_col.pack(side="left")
+        tk.Label(
+            title_col, text="Per-Process Metrics",
+            font=(self.DISPLAY_FONT, 14, "bold"),
+            fg=Palette.TEXT_PRIMARY, bg=Palette.BG_SURFACE,
+        ).pack(anchor="w")
+        tk.Label(
+            title_col, text="Completion, turnaround, waiting, and response times.",
+            font=(self.UI_FONT, 9),
+            fg=Palette.TEXT_MUTED, bg=Palette.BG_SURFACE,
+        ).pack(anchor="w", pady=(2, 0))
+        tk.Button(
+            output_header, text="Export Results",
+            command=self.export_current_results,
+            **self.secondary_button_style,
+        ).pack(side="right")
 
         results_table_frame = tk.Frame(output_card, bg=Palette.BG_SURFACE)
-        results_table_frame.pack(fill="both", expand=True, padx=22, pady=(0, 12))
+        results_table_frame.pack(fill="both", expand=True, padx=24, pady=(0, 12))
 
         self.results_tree = ttk.Treeview(
             results_table_frame, columns=("PID", "CT", "TAT", "WT", "RT"),
             show="headings", style="Scheduler.Treeview", height=6)
-        for col in ("PID", "CT", "TAT", "WT", "RT"):
-            self.results_tree.heading(col, text=col)
-            self.results_tree.column(col, anchor="center", width=108)
+        for col, header in (("PID", "Process"), ("CT", "Completion"),
+                            ("TAT", "Turnaround"), ("WT", "Waiting"), ("RT", "Response")):
+            self.results_tree.heading(col, text=header)
+            self.results_tree.column(col, anchor="center", width=120)
 
         results_scroll = ttk.Scrollbar(
             results_table_frame, orient="vertical", command=self.results_tree.yview)
@@ -444,9 +809,8 @@ class SchedulerApp:
         results_scroll.pack(side="right", fill="y")
         self._apply_tree_row_styles(self.results_tree)
 
-
         metric_strip = tk.Frame(output_card, bg=Palette.BG_SURFACE)
-        metric_strip.pack(fill="x", padx=22, pady=(0, 8))
+        metric_strip.pack(fill="x", padx=24, pady=(0, 8))
         self.averages_label = tk.Label(
             metric_strip,
             text="Average Waiting Time: —    Average Turnaround Time: —",
@@ -460,37 +824,16 @@ class SchedulerApp:
             font=(self.UI_FONT, 10),
             fg=Palette.TEXT_MUTED, bg=Palette.BG_SURFACE,
         )
-        self.performance_label.pack(anchor="w", pady=(4, 0))
-
-        export_frame = tk.Frame(output_card, bg=Palette.BG_SURFACE)
-        export_frame.pack(fill="x", padx=22, pady=(12, 22))
-        tk.Button(
-            export_frame, text="Export Current Results",
-            command=self.export_current_results,
-            **self.secondary_button_style,
-        ).pack(side="left")
-
+        self.performance_label.pack(anchor="w", pady=(4, 22))
 
         solution_card = self._card(self.simulation_page)
         solution_card.pack(fill="both", expand=True, pady=(0, 16))
-        self._section_title(solution_card, "Working")
-        self.solution_text = tk.Text(solution_card, height=8, **self.text_style)
-        self.solution_text.pack(fill="both", expand=True, padx=22, pady=(0, 22))
-
-
-        gantt_card = self._card(self.simulation_page)
-        gantt_card.pack(fill="both", expand=True, pady=(0, 16))
         self._section_title(
-            gantt_card, "Gantt Chart",
-            "Execution timeline of the currently selected scheduling strategy."
+            solution_card, "Calculation Breakdown",
+            "Step-by-step math showing how each metric was derived."
         )
-
-        self.gantt_canvas = tk.Canvas(
-            gantt_card, height=240, bg=Palette.BG_INPUT,
-            highlightthickness=1, highlightbackground=Palette.BORDER,
-        )
-        self.gantt_canvas.pack(fill="both", expand=True, padx=22, pady=(0, 22))
-
+        self.solution_text = tk.Text(solution_card, height=8, **self.text_style)
+        self.solution_text.pack(fill="both", expand=True, padx=24, pady=(0, 24))
 
         footer_actions = tk.Frame(self.simulation_page, bg=Palette.BG_APP)
         footer_actions.pack(fill="x", pady=(0, 10))
@@ -501,18 +844,61 @@ class SchedulerApp:
         ).pack(side="left")
 
     def _build_comparison_tab(self):
+        best_card = self._card(self.comparison_page)
+        best_card.pack(fill="x", pady=(0, 16))
+
+        best_inner = tk.Frame(best_card, bg=Palette.BG_SURFACE)
+        best_inner.pack(fill="x", padx=24, pady=20)
+
+        best_left = tk.Frame(best_inner, bg=Palette.BG_SURFACE)
+        best_left.pack(side="left", fill="both", expand=True)
+
+        trophy_row = tk.Frame(best_left, bg=Palette.BG_SURFACE)
+        trophy_row.pack(anchor="w")
+        tk.Label(
+            trophy_row, text="🏆",
+            font=(self.UI_FONT, 16),
+            bg=Palette.BG_SURFACE,
+        ).pack(side="left", padx=(0, 10))
+        tk.Label(
+            trophy_row, text="BEST PERFORMING ALGORITHM",
+            font=(self.UI_FONT, 9, "bold"),
+            fg=Palette.SUCCESS, bg=Palette.BG_SURFACE,
+        ).pack(side="left")
+
+        self.best_algorithm_label = tk.Label(
+            best_left, text="Run the comparison to see which algorithm performs best",
+            font=(self.DISPLAY_FONT, 15, "bold"),
+            fg=Palette.TEXT_PRIMARY, bg=Palette.BG_SURFACE,
+        )
+        self.best_algorithm_label.pack(anchor="w", pady=(8, 0))
+
+        tk.Button(
+            best_inner, text="Export Comparison",
+            command=self.export_comparison_results,
+            **self.secondary_button_style,
+        ).pack(side="right", anchor="n")
+
         comparison_card = self._card(self.comparison_page)
-        comparison_card.pack(fill="both", expand=True)
-        self._section_title(comparison_card, "Algorithm Comparison")
+        comparison_card.pack(fill="both", expand=True, pady=(0, 16))
+
+        self._section_title(
+            comparison_card, "Side-by-Side Comparison",
+            "Every algorithm evaluated on the current process set. Lowest values are best."
+        )
 
         comparison_table_frame = tk.Frame(comparison_card, bg=Palette.BG_SURFACE)
-        comparison_table_frame.pack(fill="both", expand=True, padx=22, pady=(0, 22))
+        comparison_table_frame.pack(fill="both", expand=True, padx=24, pady=(0, 24))
 
         self.comparison_tree = ttk.Treeview(
             comparison_table_frame, columns=("Algorithm", "Avg WT", "Avg TAT"),
             show="headings", style="Scheduler.Treeview", height=7)
-        for col, width in (("Algorithm", 260), ("Avg WT", 120), ("Avg TAT", 120)):
-            self.comparison_tree.heading(col, text=col)
+        for col, header, width in (
+            ("Algorithm", "Algorithm", 280),
+            ("Avg WT", "Avg. Waiting Time", 160),
+            ("Avg TAT", "Avg. Turnaround", 160),
+        ):
+            self.comparison_tree.heading(col, text=header)
             self.comparison_tree.column(col, anchor="center", width=width)
 
         comparison_scroll = ttk.Scrollbar(
@@ -524,38 +910,6 @@ class SchedulerApp:
             "selected_algorithm",
             background=Palette.ROW_SELECTED, foreground=Palette.ROW_SELECTED_FG)
         self._apply_tree_row_styles(self.comparison_tree)
-
-        comparison_export_frame = tk.Frame(comparison_card, bg=Palette.BG_SURFACE)
-        comparison_export_frame.pack(fill="x", padx=22, pady=(0, 16))
-        tk.Button(
-            comparison_export_frame, text="Export Comparison",
-            command=self.export_comparison_results,
-            **self.secondary_button_style,
-        ).pack(side="left")
-
-
-        best_banner = tk.Frame(
-            comparison_card, bg=Palette.BG_SURFACE_2,
-            highlightthickness=1, highlightbackground=Palette.BORDER,
-        )
-        best_banner.pack(fill="x", padx=22, pady=(0, 22))
-
-        best_accent = tk.Frame(best_banner, bg=Palette.SUCCESS, width=4)
-        best_accent.pack(side="left", fill="y")
-
-        best_inner = tk.Frame(best_banner, bg=Palette.BG_SURFACE_2)
-        best_inner.pack(side="left", fill="both", expand=True, padx=16, pady=12)
-        tk.Label(
-            best_inner, text="★ BEST PERFORMER",
-            font=(self.UI_FONT, 8, "bold"),
-            fg=Palette.SUCCESS, bg=Palette.BG_SURFACE_2,
-        ).pack(anchor="w")
-        self.best_algorithm_label = tk.Label(
-            best_inner, text="Run comparison to see results",
-            font=(self.UI_FONT, 11, "bold"),
-            fg=Palette.TEXT_PRIMARY, bg=Palette.BG_SURFACE_2,
-        )
-        self.best_algorithm_label.pack(anchor="w", pady=(4, 0))
 
     def _build_footer(self):
         footer_frame = tk.Frame(self.main_frame, bg=Palette.BG_APP)
@@ -607,27 +961,29 @@ class SchedulerApp:
     def _make_stat_card(self, parent, title, accent_color=Palette.PRIMARY):
         wrapper = tk.Frame(
             parent, bg=Palette.BG_SURFACE,
-            highlightthickness=1, highlightbackground=Palette.BORDER,
+            highlightthickness=1, highlightbackground=Palette.BORDER_SOFT,
         )
-        wrapper.pack(side="left", fill="x", expand=True, padx=(0, 12))
-
-
-        tk.Frame(wrapper, bg=accent_color, height=3).pack(fill="x")
+        wrapper.pack(side="left", fill="both", expand=True, padx=(0, 10))
 
         inner = tk.Frame(wrapper, bg=Palette.BG_SURFACE)
-        inner.pack(fill="both", expand=True, padx=20, pady=16)
+        inner.pack(fill="both", expand=True, padx=20, pady=18)
 
+        label_row = tk.Frame(inner, bg=Palette.BG_SURFACE)
+        label_row.pack(fill="x")
+        tk.Frame(label_row, bg=accent_color, width=3, height=12).pack(
+            side="left", padx=(0, 8))
         tk.Label(
-            inner, text=title.upper(),
+            label_row, text=title.upper(),
             font=(self.UI_FONT, 8, "bold"),
             fg=Palette.TEXT_MUTED, bg=Palette.BG_SURFACE,
-        ).pack(anchor="w")
+        ).pack(side="left")
+
         value_label = tk.Label(
             inner, text="—",
-            font=(self.DISPLAY_FONT, 20, "bold"),
+            font=(self.DISPLAY_FONT, 22, "bold"),
             fg=Palette.TEXT_PRIMARY, bg=Palette.BG_SURFACE,
         )
-        value_label.pack(anchor="w", pady=(8, 0))
+        value_label.pack(anchor="w", pady=(10, 0))
         return value_label
 
     def _make_scrollable_tab(self, parent):
@@ -655,14 +1011,22 @@ class SchedulerApp:
             elif event.delta:
                 step = -1 if event.delta > 0 else 1
                 canvas.yview_scroll(step, "units")
+            return "break"
+
+        def on_enter(_event):
+            self.root.bind_all("<MouseWheel>", on_mousewheel)
+            self.root.bind_all("<Button-4>", on_mousewheel)
+            self.root.bind_all("<Button-5>", on_mousewheel)
+
+        def on_leave(_event):
+            self.root.unbind_all("<MouseWheel>")
+            self.root.unbind_all("<Button-4>")
+            self.root.unbind_all("<Button-5>")
 
         canvas.bind("<Configure>", resize_content)
         content.bind("<Configure>", update_scrollregion)
-
-        for widget in (canvas, content):
-            widget.bind("<MouseWheel>", on_mousewheel)
-            widget.bind("<Button-4>", on_mousewheel)
-            widget.bind("<Button-5>", on_mousewheel)
+        canvas.bind("<Enter>", on_enter)
+        canvas.bind("<Leave>", on_leave)
 
         return content
 
@@ -784,10 +1148,10 @@ class SchedulerApp:
     def set_edit_mode(self, editing):
         if editing:
             self.add_update_button.configure(text="Update Process")
-            self.cancel_edit_button.grid()
+            self.cancel_edit_button.pack(side="left", padx=(10, 0))
         else:
-            self.add_update_button.configure(text="Add Process")
-            self.cancel_edit_button.grid_remove()
+            self.add_update_button.configure(text="+  Add Process")
+            self.cancel_edit_button.pack_forget()
 
     def add_or_update_process(self):
         pid = self.pid_entry.get().strip()
@@ -830,7 +1194,7 @@ class SchedulerApp:
         self._reset_all_entry_borders()
 
         if self.algo_var.get():
-            self.simulate(show_errors=False)
+            self.simulate(show_errors=False, navigate=False)
 
     def on_add_process_enter(self, event=None):
         self.add_or_update_process()
@@ -891,25 +1255,55 @@ class SchedulerApp:
         self._reset_all_entry_borders()
 
     def load_demo_case(self):
-        self.clear_all_processes()
-        for pid, at, bt, pr in self.DEMO_PROCESSES:
+        self._load_preset("Basic Example")
+
+    def _on_preset_selected(self, event=None):
+        name = self.preset_var.get()
+        if not name:
+            return
+        self._load_preset(name)
+        self.preset_dropdown.selection_clear()
+
+    def _load_preset(self, name):
+        preset = self.PRESETS.get(name)
+        if not preset:
+            return
+        if self.processes:
+            if not messagebox.askyesno(
+                "Load preset?",
+                f"This will replace the current workload with the “{name}” preset.\n\n"
+                f"{preset['description']}\n\nContinue?",
+                icon="question",
+            ):
+                return
+        self.processes.clear()
+        self.cancel_edit()
+        for pid, at, bt, pr in preset["processes"]:
             self.processes.append(Process(pid, at, bt, pr))
         self.refresh_process_tree()
         self.update_summary_cards()
-        self.simulate(show_errors=False)
-        self.compare_algorithms()
+        self._reset_all_entry_borders()
+        self.simulate(show_errors=False, navigate=False)
+        self.compare_algorithms(navigate=False)
 
 
     def update_summary_cards(self, avg_wt="—", avg_tat="—", idle_time="—", cpu_util="—"):
         selected_algorithm = self.get_selected_algorithm()
-        self.summary_cards["Processes"].configure(text=str(len(self.processes)))
+        process_count = len(self.processes)
+        self.summary_cards["Processes"].configure(text=str(process_count))
         self.summary_cards["Algorithm"].configure(text=selected_algorithm)
         self.summary_cards["Avg WT"].configure(text=avg_wt)
         self.summary_cards["Avg TAT"].configure(text=avg_tat)
         self.summary_cards["Idle Time"].configure(text=idle_time)
         self.summary_cards["CPU Util"].configure(text=cpu_util)
-        self.header_algorithm_label.configure(text=f"Algorithm: {selected_algorithm}")
-        self.header_process_count_label.configure(text=f"Processes: {len(self.processes)}")
+        self.header_algorithm_label.configure(text=selected_algorithm)
+        plural = "process" if process_count == 1 else "processes"
+        self.header_process_count_label.configure(text=f"{process_count} {plural}")
+        if hasattr(self, "status_dot"):
+            self.status_dot.delete("all")
+            dot_color = Palette.SUCCESS if process_count > 0 else Palette.TEXT_MUTED
+            self.status_dot.configure(bg=Palette.BG_SURFACE_2)
+            self.status_dot.create_oval(1, 1, 7, 7, fill=dot_color, outline="")
 
     def refresh_process_tree(self):
         self.tree.delete(*self.tree.get_children())
@@ -919,6 +1313,11 @@ class SchedulerApp:
                 values=(process.pid, process.arrival_time,
                         process.burst_time, process.priority),
                 tags=(self._next_row_tag(self.tree),))
+        if hasattr(self, "processes_empty_label"):
+            if self.processes:
+                self.processes_empty_label.place_forget()
+            else:
+                self.processes_empty_label.place(relx=0.5, rely=0.5, anchor="center")
 
     def clear_simulation_outputs(self):
         self.gantt_canvas.delete("all")
@@ -931,6 +1330,7 @@ class SchedulerApp:
             text="Response Time Avg: —    CPU Idle Time: —    CPU Utilization: —")
         self.last_result_rows = []
         self.last_metrics = {}
+        self.last_timeline = []
         self.update_summary_cards()
 
     def update_quantum_state(self):
@@ -949,7 +1349,7 @@ class SchedulerApp:
         if self.algo_var.get() == "Round Robin" and not self.quantum_entry.get().strip().isdigit():
             return
 
-        self.simulate(show_errors=False)
+        self.simulate(show_errors=False, navigate=False)
 
 
     def run_algorithm(self, algorithm_name, process_list):
@@ -966,12 +1366,13 @@ class SchedulerApp:
 
         return runner(process_list, tq)
 
-    def compare_algorithms(self):
+    def compare_algorithms(self, navigate=True):
         if not self.processes:
             messagebox.showerror("Error", "No processes added")
             return
 
-        self.notebook.select(self.comparison_tab)
+        if navigate:
+            self.notebook.select(self.comparison_tab)
         self.comparison_tree.delete(*self.comparison_tree.get_children())
         self.last_comparison_rows = []
 
@@ -1077,14 +1478,28 @@ class SchedulerApp:
         self.update_summary_cards()
 
 
-    def show_gantt_chart(self, timeline):
+    def show_gantt_chart(self, timeline, animate=False):
+        if hasattr(self, "_gantt_anim_job") and self._gantt_anim_job:
+            try:
+                self.root.after_cancel(self._gantt_anim_job)
+            except Exception:
+                pass
+            self._gantt_anim_job = None
+
         self.gantt_canvas.delete("all")
 
         if not timeline:
+            self.gantt_canvas.update_idletasks()
+            w = self.gantt_canvas.winfo_width() or 800
+            h = self.gantt_canvas.winfo_height() or 220
             self.gantt_canvas.create_text(
-                420, 110,
-                text="Run a simulation to view the execution timeline.",
-                fill=Palette.TEXT_MUTED, font=(self.UI_FONT, 11))
+                w // 2, h // 2 - 10,
+                text="📊",
+                fill=Palette.TEXT_MUTED, font=(self.UI_FONT, 20))
+            self.gantt_canvas.create_text(
+                w // 2, h // 2 + 20,
+                text="Run a simulation to view the execution timeline",
+                fill=Palette.TEXT_MUTED, font=(self.UI_FONT, 10))
             return
 
         scale = 44
@@ -1098,35 +1513,59 @@ class SchedulerApp:
             24, y2 + 10, 980, y2 + 10,
             fill=Palette.BORDER, width=1)
 
-        for index, (pid, start, end) in enumerate(timeline):
-            x1 = 30 + start * scale
-            x2 = 30 + end * scale
-
-            self.gantt_canvas.create_rectangle(
-                x1, y1, x2, y2,
-                fill=colors[index % len(colors)],
-                outline=Palette.BG_INPUT, width=1)
+        if not animate:
+            for index, (pid, start, end) in enumerate(timeline):
+                self._draw_gantt_block(index, pid, start, end, scale, y1, y2, colors)
             self.gantt_canvas.create_text(
-                (x1 + x2) / 2, (y1 + y2) / 2,
-                text=pid, fill="#ffffff",
-                font=(self.UI_FONT, 10, "bold"))
-            self.gantt_canvas.create_text(
-                x1, y2 + 30, text=str(start),
+                30 + timeline[-1][2] * scale, y2 + 30,
+                text=str(timeline[-1][2]),
                 fill=Palette.TEXT_SECONDARY, font=(self.UI_FONT, 10))
+            return
 
+        self._animate_gantt(timeline, 0, scale, y1, y2, colors)
+
+    def _draw_gantt_block(self, index, pid, start, end, scale, y1, y2, colors):
+        x1 = 30 + start * scale
+        x2 = 30 + end * scale
+        self.gantt_canvas.create_rectangle(
+            x1, y1, x2, y2,
+            fill=colors[index % len(colors)],
+            outline=Palette.BG_SURFACE_2, width=1)
         self.gantt_canvas.create_text(
-            30 + timeline[-1][2] * scale, y2 + 30,
-            text=str(timeline[-1][2]),
+            (x1 + x2) / 2, (y1 + y2) / 2,
+            text=pid, fill="#ffffff",
+            font=(self.UI_FONT, 10, "bold"))
+        self.gantt_canvas.create_text(
+            x1, y2 + 30, text=str(start),
             fill=Palette.TEXT_SECONDARY, font=(self.UI_FONT, 10))
 
+    def _animate_gantt(self, timeline, index, scale, y1, y2, colors):
+        if index >= len(timeline):
+            self.gantt_canvas.create_text(
+                30 + timeline[-1][2] * scale, y2 + 30,
+                text=str(timeline[-1][2]),
+                fill=Palette.TEXT_SECONDARY, font=(self.UI_FONT, 10))
+            self._gantt_anim_job = None
+            return
 
-    def simulate(self, show_errors=True):
+        pid, start, end = timeline[index]
+        self._draw_gantt_block(index, pid, start, end, scale, y1, y2, colors)
+
+        delay = 220 if len(timeline) <= 12 else max(80, 2000 // len(timeline))
+        self._gantt_anim_job = self.root.after(
+            delay,
+            lambda: self._animate_gantt(timeline, index + 1, scale, y1, y2, colors),
+        )
+
+
+    def simulate(self, show_errors=True, navigate=True):
         if not self.processes:
             if show_errors:
                 messagebox.showerror("Error", "No processes added")
             return
 
-        self.notebook.select(self.simulation_tab)
+        if navigate:
+            self.notebook.select(self.simulation_tab)
 
         process_list = [
             Process(p.pid, p.arrival_time, p.burst_time, p.priority)
@@ -1142,7 +1581,8 @@ class SchedulerApp:
                 messagebox.showerror("Error", str(error))
             return
 
-        self.show_gantt_chart(timeline)
+        self.show_gantt_chart(timeline, animate=navigate)
+        self.last_timeline = timeline
 
         self.results_tree.delete(*self.results_tree.get_children())
         self.solution_text.delete("1.0", tk.END)
