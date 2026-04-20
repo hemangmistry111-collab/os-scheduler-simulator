@@ -15,4 +15,4 @@ A Python-based simulator for CPU scheduling algorithms used in Operating Systems
 - Python
 
 ## Project Type
-Academic Mini Project
+College Python Project
